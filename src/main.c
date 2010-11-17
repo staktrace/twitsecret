@@ -1,8 +1,3 @@
-/*
- * (c) staktrace systems, 2010.
- * See http://staktrace.com/ for license details.
- */
-
 #include <strings.h>
 #include <stdio.h>
 #include <fcntl.h>
