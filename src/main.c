@@ -10,16 +10,35 @@
 #include "gcrypt.h"
 
 #define KEY_BUFLEN 1024
-#define MSG_BUFLEN 1024
+#define MSG_BUFLEN 4096
 #define ASYMM_KEY_BITS 1024
-#define SYMM_KEY_BYTES (ASYMM_KEY_BITS/8)
+#define SYMM_KEY_BYTES 16
 #define AES_BLOCK_SIZE 16
 #define AES_INIT_VECTOR "___twitsecret___"
 #define AES_PADDING_CHAR ' '
 #define MAX_MESSAGE_LENGTH 140
+#define MAX_RECIPIENTS 255
 
 #define CHECK_GCRY(x) { gcry_error_t ret = (x); if (ret) { fprintf( stderr, "Error %d:%s in %s on line %d\n", gcry_err_code( ret ), gcry_strerror( ret ), gcry_strsource( ret ), __LINE__ ); abort(); } }
 #define CHECK_SYS(x) { if ((x) < 0) { fprintf( stderr, "Error %s on line %d\n", strerror( errno ), __LINE__ ); abort(); } }
+
+void twit_hexdump( char* dest, const char* src, int srclen ) {
+    int c;
+    while (srclen-- > 0) {
+        c = (*src >> 4) & 0x0F;
+        *dest++ = (char)(c < 10 ? '0' + c : 'a' + c - 10);
+        c = (*src++) & 0x0F;
+        *dest++ = (char)(c < 10 ? '0' + c : 'a' + c - 10);
+    }
+    *dest = 0;
+}
+
+void twit_dump( const char* src, int srclen ) {
+    char* tmp = malloc( srclen * 2 + 1 );
+    twit_hexdump( tmp, src, srclen );
+    printf( "%s\n", tmp );
+    free( tmp );
+}
 
 void twit_init_gcrypt() {
     if (! gcry_check_version( GCRYPT_VERSION )) {
@@ -99,24 +118,6 @@ size_t twit_decrypt( char* ciphertext, size_t cipherlen, char* password, size_t 
     return cipherlen;
 }
 
-void twit_hexdump( char* dest, char* src, int srclen ) {
-    int c;
-    while (srclen-- > 0) {
-        c = (*src >> 4) & 0x0F;
-        *dest++ = (char)(c < 10 ? '0' + c : 'a' + c - 10);
-        c = (*src++) & 0x0F;
-        *dest++ = (char)(c < 10 ? '0' + c : 'a' + c - 10);
-    }
-    *dest = 0;
-}
-
-void twit_dump( char* src, int srclen ) {
-    char* tmp = malloc( srclen * 2 + 1 );
-    twit_hexdump( tmp, src, srclen );
-    printf( "%s\n", tmp );
-    free( tmp );
-}
-
 char* twit_mkfilename( char* username, const char* extension ) {
     char* filename = malloc( 2 * strlen( username ) + strlen( extension ) + 1 );
     twit_hexdump( filename, username, strlen( username ) );
@@ -179,71 +180,89 @@ void twit_gen_keys( char* username, char* password ) {
     gcry_sexp_release( seckey );
 }
 
-void twit_test_encrypt( char* username, char* message ) {
+void twit_test_encrypt( char* message, char** usernames, int usernamecount ) {
     assert( strlen( message ) <= MAX_MESSAGE_LENGTH );
-
-    gcry_sexp_t pubkey;
-
-    {   // get the public key
-        char* pubkeytext = malloc( KEY_BUFLEN );
-        int pubkeylen = 0;
-
-        {   // read the key from file
-            char* filename = twit_mkfilename( username, ".pub" );
-            pubkeylen = twit_readfile( filename, pubkeytext, KEY_BUFLEN );
-            assert( pubkeylen < KEY_BUFLEN );
-            free( filename );
-        }
-
-        CHECK_GCRY( gcry_sexp_new( &pubkey, pubkeytext, pubkeylen, 0 ) );
-        free( pubkeytext );
-    }
+    assert( usernamecount <= MAX_RECIPIENTS );
 
     char* tweet = malloc( MSG_BUFLEN );
     int tweetlen = 0;
 
-    {   // generate the symmetric key
-        char* symkey = malloc( SYMM_KEY_BYTES );
-        gcry_randomize( symkey, SYMM_KEY_BYTES, GCRY_STRONG_RANDOM );
+    tweet[ tweetlen++ ] = (char)usernamecount;
+
+    // generate the symmetric key
+    char* symkey = malloc( SYMM_KEY_BYTES );
+    gcry_randomize( symkey, SYMM_KEY_BYTES, GCRY_STRONG_RANDOM );
+
+    int i;
+    for (i = 0; i < usernamecount; i++) {
+        gcry_sexp_t pubkey;
+
+        {   // get the public key
+            char* pubkeytext = malloc( KEY_BUFLEN );
+            int pubkeylen = 0;
+
+            {   // read the key from file
+                char* filename = twit_mkfilename( usernames[i], ".pub" );
+                pubkeylen = twit_readfile( filename, pubkeytext, KEY_BUFLEN );
+                assert( pubkeylen < KEY_BUFLEN );
+                free( filename );
+            }
+
+            CHECK_GCRY( gcry_sexp_new( &pubkey, pubkeytext, pubkeylen, 0 ) );
+            free( pubkeytext );
+        }
 
         {   // write the pubkey-encrypted symkey to tweet
-            gcry_sexp_t symkeydata, symkeycipher;
-            const char* symkeyptr;
-            size_t symkeylen;
+            gcry_sexp_t symkeycipher;
 
-            CHECK_GCRY( gcry_sexp_build( &symkeydata, 0, "(data (flags raw) (value %b))", SYMM_KEY_BYTES, symkey ) );
-twit_dump(symkey, SYMM_KEY_BYTES);
-            CHECK_GCRY( gcry_pk_encrypt( &symkeycipher, symkeydata, pubkey ) );
-            gcry_sexp_release( symkeydata );
+            {   // generate the encrypted symkey
+                gcry_sexp_t symkeydata;
+                size_t personalizedlen = strlen( usernames[i] ) + 1 + SYMM_KEY_BYTES;
+                char* personalized = malloc( personalizedlen );
 
-            assert( symkeydata = gcry_sexp_find_token( symkeycipher, "a", 0 ) );
-            assert( symkeyptr = gcry_sexp_nth_data( symkeydata, 1, &symkeylen ) );
-            memcpy( tweet + tweetlen, &symkeylen, sizeof(symkeylen) );
-            tweetlen += sizeof(symkeylen);
-            memcpy( tweet + tweetlen, symkeyptr, symkeylen );
-            tweetlen += symkeylen;
-            gcry_sexp_release( symkeydata );
+                strcpy( personalized, usernames[i] );
+                strcat( personalized, "@" );
+                memcpy( personalized + strlen( personalized ), symkey, SYMM_KEY_BYTES );
+                CHECK_GCRY( gcry_sexp_build( &symkeydata, 0, "(data (flags raw) (value %b))", personalizedlen, personalized ) );
+                CHECK_GCRY( gcry_pk_encrypt( &symkeycipher, symkeydata, pubkey ) );
+
+                gcry_sexp_release( symkeydata );
+                free( personalized );
+            }
+
+            {   // extract the encrypted symkey bytes and write to tweet
+                gcry_sexp_t symkeydata;
+                const char* symkeyptr;
+                size_t symkeylen;
+
+                assert( symkeydata = gcry_sexp_find_token( symkeycipher, "a", 0 ) );
+                assert( symkeyptr = gcry_sexp_nth_data( symkeydata, 1, &symkeylen ) );
+
+                memcpy( tweet + tweetlen, &symkeylen, sizeof(symkeylen) );
+                tweetlen += sizeof(symkeylen);
+                memcpy( tweet + tweetlen, symkeyptr, symkeylen );
+                tweetlen += symkeylen;
+
+                gcry_sexp_release( symkeydata );
+            }
             gcry_sexp_release( symkeycipher );
         }
 
-        {   // write the symkey-encrypted msg to tweet
-            char* msgtext = malloc( MSG_BUFLEN );
-            strcpy( msgtext, message );
-            size_t msglen = twit_encrypt( msgtext, strlen( msgtext ), symkey, SYMM_KEY_BYTES );
-            memcpy( tweet + tweetlen, msgtext, msglen );
-            tweetlen += msglen;
-            free( msgtext );
-        }
-
-        {   // write to file
-            char* filename = twit_mkfilename( username, ".msg" );
-            twit_writefile( filename, tweet, tweetlen );
-            free( filename );
-        }
-
-        free( symkey );
+        gcry_sexp_release( pubkey );
     }
 
+    {   // write the symkey-encrypted msg to tweet
+        char* msgtext = malloc( MSG_BUFLEN );
+        strcpy( msgtext, message );
+        size_t msglen = twit_encrypt( msgtext, strlen( msgtext ), symkey, SYMM_KEY_BYTES );
+        memcpy( tweet + tweetlen, msgtext, msglen );
+        tweetlen += msglen;
+        free( msgtext );
+    }
+
+    twit_writefile( "twitsecret.msg", tweet, tweetlen );
+
+    free( symkey );
     free( tweet );
 }
 
@@ -268,22 +287,23 @@ void twit_test_decrypt( char* username, char* password ) {
     }
 
     char* tweet = malloc( MSG_BUFLEN );
-    int tweetlen = 0;
+    int tweetlen = twit_readfile( "twitsecret.msg", tweet, MSG_BUFLEN );
     int tweetix = 0;
-
-    {   // read the tweet
-        char* filename = twit_mkfilename( username, ".msg" );
-        tweetlen = twit_readfile( filename, tweet, MSG_BUFLEN );
-        free( filename );
-    }
 
     char* symkey = malloc( SYMM_KEY_BYTES );
 
-    {   // parse the symmetric key and decrypt it
+    int numusers = (int)tweet[ tweetix++ ];
+
+    int found = 0;
+    int i;
+    for (i = 0; i < numusers; i++) {
+        // parse the symmetric key and decrypt it
         size_t cipherlen;
         memcpy( &cipherlen, tweet + tweetix, sizeof(cipherlen) );
         tweetix += sizeof(cipherlen);
-        {
+
+        if (found == 0) {
+            // try decrypting the pubkey-encrypted symkey to see if it matches the username
             gcry_sexp_t symkeydata, symkeyplain;
             const char* symkeyptr;
             size_t symkeylen;
@@ -293,17 +313,20 @@ void twit_test_decrypt( char* username, char* password ) {
             CHECK_GCRY( gcry_pk_decrypt( &symkeyplain, symkeydata, seckey ) );
             gcry_sexp_release( symkeydata );
 
-            //assert( symkeydata = gcry_sexp_find_token( symkeyplain, "data", 0 ) );
             assert( symkeyptr = gcry_sexp_nth_data( symkeyplain, 0, &symkeylen ) );
-            assert( symkeylen == SYMM_KEY_BYTES );
-            memcpy( symkey, symkeyptr, symkeylen );
-
-            //gcry_sexp_release( symkeydata );
+            if (symkeylen == strlen( username ) + 1 + SYMM_KEY_BYTES && memcmp( symkeyptr, username, strlen( username ) ) == 0 && symkeyptr[ strlen( username ) ] == '@') {
+                memcpy( symkey, symkeyptr + strlen( username ) + 1, symkeylen - strlen( username ) - 1 );
+                found = 1;
+            }
             gcry_sexp_release( symkeyplain );
+        } else {
+            // already found the symkey, skip past the other pubkey-encrypted symkeys
+            tweetix += cipherlen;
         }
     }
 
-    {   // parse the message and decrypt it
+    if (found) {
+        // parse the message and decrypt it
         char* msgtext = malloc( MSG_BUFLEN );
         size_t msglen = tweetlen - tweetix;
         assert( msglen <= MSG_BUFLEN );
@@ -311,6 +334,8 @@ void twit_test_decrypt( char* username, char* password ) {
         msglen = twit_decrypt( msgtext, msglen, symkey, SYMM_KEY_BYTES );
         printf( "message: %s\n", msgtext );
         free( msgtext );
+    } else {
+        printf( "error: unable to decrypt message\n" );
     }
 
     free( symkey );
@@ -325,8 +350,8 @@ void twit_usage() {
     printf( "       Generates a new twitsecret ECDSA keypair for the user. Also publishes the public key\n" );
     printf( "       and saves the private key to ~/.twitsecret/<file>.key, where <file> is the base-64\n" );
     printf( "       encoding of <username>\n" );
-    printf( "   enc <username> <message>\n" );
-    printf( "       Encrypt the message using the pubkey belonging to user\n" );
+    printf( "   enc <message> [<username> [<username> [...]]]\n" );
+    printf( "       Encrypt the message using the pubkeys belonging to the specified users\n" );
     printf( "   dec <username> <password>\n" );
     printf( "       Decrypt the message using the seckey belonging to user\n" );
 }
@@ -334,8 +359,8 @@ void twit_usage() {
 int main( int argc, char** argv ) {
     if (argc == 4 && strcasecmp( argv[1], "init" ) == 0) {
         twit_gen_keys( argv[2], argv[3] );
-    } else if (argc == 4 && strcasecmp( argv[1], "enc" ) == 0) {
-        twit_test_encrypt( argv[2], argv[3] );
+    } else if (argc >= 3 && strcasecmp( argv[1], "enc" ) == 0) {
+        twit_test_encrypt( argv[2], argv + 3, argc - 3 );
     } else if (argc == 4 && strcasecmp( argv[1], "dec" ) == 0) {
         twit_test_decrypt( argv[2], argv[3] );
     } else {
