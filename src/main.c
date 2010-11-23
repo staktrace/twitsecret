@@ -47,7 +47,7 @@ void twit_dump( const char* src, int srclen ) {
 
 void twit_init_gcrypt() {
     if (! gcry_check_version( GCRYPT_VERSION )) {
-        fprintf( stderr, "Error: libgcrypt version mismatch\n" );
+        fprintf( stderr, "Error: libgcrypt version mismatch: compiled with %s, runtime is %s\n", GCRYPT_VERSION, gcry_check_version(0) );
         abort();
     }
     CHECK_GCRY( gcry_control( GCRYCTL_INIT_SECMEM, 16384, 0 ) );
