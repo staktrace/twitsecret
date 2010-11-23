@@ -9,6 +9,8 @@
 #define GCRYPT_NO_DEPRECATED
 #include "gcrypt.h"
 
+#include "zlib.h"
+
 #define KEY_BUFLEN 1024
 #define MSG_BUFLEN 4096
 #define ASYMM_KEY_BITS 1024
@@ -18,9 +20,12 @@
 #define AES_PADDING_CHAR ' '
 #define MAX_MESSAGE_LENGTH 140
 #define MAX_RECIPIENTS 255
+#define TWIT_UNCOMPRESSED 0
+#define TWIT_ZLIB 1
 
 #define CHECK_GCRY(x) { gcry_error_t ret = (x); if (ret) { fprintf( stderr, "Error %d:%s in %s on line %d\n", gcry_err_code( ret ), gcry_strerror( ret ), gcry_strsource( ret ), __LINE__ ); abort(); } }
 #define CHECK_SYS(x) { if ((x) < 0) { fprintf( stderr, "Error %s on line %d\n", strerror( errno ), __LINE__ ); abort(); } }
+#define CHECK_ZLIB(x) { if ((x) != Z_OK) { fprintf( stderr, "Zlib error on line %d\n", __LINE__ ); abort(); } }
 
 void twit_hexdump( char* dest, const char* src, int srclen ) {
     int c;
@@ -253,8 +258,24 @@ void twit_test_encrypt( char* message, char** usernames, int usernamecount ) {
 
     {   // write the symkey-encrypted msg to tweet
         char* msgtext = malloc( MSG_BUFLEN );
-        strcpy( msgtext, message );
-        size_t msglen = twit_encrypt( msgtext, strlen( msgtext ), symkey, SYMM_KEY_BYTES );
+        *msgtext = TWIT_UNCOMPRESSED;
+        strcpy( msgtext + 1, message );
+        size_t msglen = strlen( message ) + 1;
+
+        {
+            size_t compressedSize = compressBound( msglen );
+            char* compressed = malloc( compressedSize );
+            CHECK_ZLIB( compress2( (unsigned char*)compressed, &compressedSize, (unsigned char*)(msgtext + 1), (msglen - 1), Z_BEST_COMPRESSION ) );
+            if (compressedSize + 1 < msglen) {
+printf( "Compressing\n" );
+                *msgtext = TWIT_ZLIB;
+                memcpy( msgtext + 1, compressed, compressedSize );
+                msglen = compressedSize + 1;
+            }
+            free( compressed );
+        }
+
+        msglen = twit_encrypt( msgtext, msglen, symkey, SYMM_KEY_BYTES );
         memcpy( tweet + tweetlen, msgtext, msglen );
         tweetlen += msglen;
         free( msgtext );
@@ -332,7 +353,18 @@ void twit_test_decrypt( char* username, char* password ) {
         assert( msglen <= MSG_BUFLEN );
         memcpy( msgtext, tweet + tweetix, msglen );
         msglen = twit_decrypt( msgtext, msglen, symkey, SYMM_KEY_BYTES );
-        printf( "message: %s\n", msgtext );
+
+        if (*msgtext == TWIT_ZLIB) {
+            size_t uncompressedlen = MSG_BUFLEN;
+            char* uncompressed = malloc( uncompressedlen );
+            CHECK_ZLIB( uncompress( (unsigned char*)uncompressed, &uncompressedlen, (unsigned char*)(msgtext + 1), msglen - 1 ) );
+            memcpy( msgtext + 1, uncompressed, uncompressedlen );
+            msglen = uncompressedlen + 1;
+            *msgtext = TWIT_UNCOMPRESSED;
+            free( uncompressed );
+        }
+
+        printf( "message: %s\n", msgtext + 1 );
         free( msgtext );
     } else {
         printf( "error: unable to decrypt message\n" );
