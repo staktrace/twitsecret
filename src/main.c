@@ -347,9 +347,7 @@ void twit_usage() {
     printf( "Usage: twitsecret <command> [command-args]\n" );
     printf( "Commands:\n" );
     printf( "   init <username> <password>\n" );
-    printf( "       Generates a new twitsecret ECDSA keypair for the user. Also publishes the public key\n" );
-    printf( "       and saves the private key to ~/.twitsecret/<file>.key, where <file> is the base-64\n" );
-    printf( "       encoding of <username>\n" );
+    printf( "       Generates a new keypair for the user\n" );
     printf( "   enc <message> [<username> [<username> [...]]]\n" );
     printf( "       Encrypt the message using the pubkeys belonging to the specified users\n" );
     printf( "   dec <username> <password>\n" );
