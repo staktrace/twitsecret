@@ -292,7 +292,7 @@ void twit_test_decrypt( char* username, char* password ) {
 
     char* symkey = malloc( SYMM_KEY_BYTES );
 
-    int numusers = (int)tweet[ tweetix++ ];
+    int numusers = tweet[ tweetix++ ] & 0xFF;
 
     int found = 0;
     int i;
