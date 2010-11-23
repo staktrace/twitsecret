@@ -1,7 +1,7 @@
 all: twitsecret
 
 twitsecret: main.c packer.c packer.h
-	gcc -arch i386 -Wall `libgcrypt-config --cflags --libs` -lz -o twitsecret main.c packer.c
+	gcc -g -Wall -I../bin/gnupg-ecc/include/ -L../bin/gnupg-ecc/lib/ -lgcrypt -lgpg-error -lz -o twitsecret main.c packer.c
 
 clean:
 	-rm twitsecret
