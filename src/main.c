@@ -15,7 +15,7 @@
 
 #define KEY_BUFLEN 1024
 #define MSG_BUFLEN 4096
-#define ASYMM_KEY_BITS 1024
+#define ASYMM_KEY_BITS 160
 #define SYMM_KEY_BYTES 16
 #define AES_BLOCK_SIZE 16
 #define AES_INIT_VECTOR "___twitsecret___"
@@ -59,7 +59,7 @@ void twit_init_gcrypt() {
 
 void twit_generate_keypair( gcry_sexp_t* pubkey, gcry_sexp_t* seckey ) {
     gcry_sexp_t key_parms, keys;
-    CHECK_GCRY( gcry_sexp_build( &key_parms, NULL, "(genkey (rsa (nbits %d)))", ASYMM_KEY_BITS ) );
+    CHECK_GCRY( gcry_sexp_build( &key_parms, NULL, "(genkey (ecc (nbits %d)))", ASYMM_KEY_BITS ) );
     CHECK_GCRY( gcry_pk_genkey( &keys, key_parms ) );
     assert( *pubkey = gcry_sexp_find_token( keys, "public-key", 0 ) );
     assert( *seckey = gcry_sexp_find_token( keys, "private-key", 0 ) );
