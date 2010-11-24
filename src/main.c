@@ -52,6 +52,7 @@ void twit_init_gcrypt() {
         abort();
     }
     CHECK_GCRY( gcry_control( GCRYCTL_INIT_SECMEM, 16384, 0 ) );
+    CHECK_GCRY( gcry_control( GCRYCTL_ENABLE_QUICK_RANDOM ) );
     CHECK_GCRY( gcry_control( GCRYCTL_INITIALIZATION_FINISHED, 0 ) );
 }
 
