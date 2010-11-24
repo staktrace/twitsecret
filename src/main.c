@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <assert.h>
 #include <errno.h>
+#include <sys/stat.h>
 
 #define GCRYPT_NO_MPI_MACROS
 #define GCRYPT_NO_DEPRECATED
@@ -131,7 +132,7 @@ char* twit_mkfilename( char* username, const char* extension ) {
 }
 
 void twit_writefile( char* filename, char* data, size_t datalen ) {
-    int outfile = open( filename, O_WRONLY | O_TRUNC | O_CREAT );
+    int outfile = open( filename, O_WRONLY | O_TRUNC | O_CREAT, S_IRUSR | S_IWUSR );
     CHECK_SYS( outfile );
     CHECK_SYS( write( outfile, data, datalen ) );
     CHECK_SYS( close( outfile ) );
