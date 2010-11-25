@@ -9,8 +9,9 @@
 #define GCRYPT_NO_MPI_MACROS
 #define GCRYPT_NO_DEPRECATED
 #include "gcrypt.h"
-
 #include "zlib.h"
+
+#include "packer.h"
 
 #define KEY_BUFLEN 1024
 #define MSG_BUFLEN 4096
@@ -282,6 +283,16 @@ void twit_test_encrypt( char* message, char** usernames, int usernamecount ) {
         free( msgtext );
     }
 
+    {   // pack it into unicode to reduce the number of "characters" used
+        char* packed = malloc( MSG_BUFLEN );
+        size_t numchars;
+        size_t packsize = pack( packed, MSG_BUFLEN, tweet, tweetlen, &numchars );
+        printf( "Message written in %lu unicode characters\n", numchars );
+        memcpy( tweet, packed, packsize );
+        tweetlen = packsize;
+        free( packed );
+    }
+
     twit_writefile( "twitsecret.msg", tweet, tweetlen );
 
     free( symkey );
@@ -311,6 +322,14 @@ void twit_test_decrypt( char* username, char* password ) {
     char* tweet = malloc( MSG_BUFLEN );
     int tweetlen = twit_readfile( "twitsecret.msg", tweet, MSG_BUFLEN );
     int tweetix = 0;
+
+    {   // unpack the utf-8 back to binary
+        char* unpacked = malloc( MSG_BUFLEN );
+        size_t unpacksize = unpack( unpacked, MSG_BUFLEN, tweet, tweetlen );
+        memcpy( tweet, unpacked, unpacksize );
+        tweetlen = unpacksize;
+        free( unpacked );
+    }
 
     char* symkey = malloc( SYMM_KEY_BYTES );
 

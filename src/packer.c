@@ -74,7 +74,7 @@ size_t unpack( char* dst, size_t dstlen, char* src, size_t srclen ) {
         if (c == 0x09) {
             srclen--;
 
-            assert( srclen > 3 );
+            assert( srclen > 2 );
             c = READ(src);
             assert( (c & 0xF0) == 0xE0 );
             c = (c & 0xF) << 12;
