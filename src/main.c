@@ -269,7 +269,6 @@ void twit_test_encrypt( char* message, char** usernames, int usernamecount ) {
             char* compressed = malloc( compressedSize );
             CHECK_ZLIB( compress2( (unsigned char*)compressed, &compressedSize, (unsigned char*)(msgtext + 1), (msglen - 1), Z_BEST_COMPRESSION ) );
             if (compressedSize + 1 < msglen) {
-printf( "Compressing\n" );
                 *msgtext = TWIT_ZLIB;
                 memcpy( msgtext + 1, compressed, compressedSize );
                 msglen = compressedSize + 1;
@@ -365,6 +364,7 @@ void twit_test_decrypt( char* username, char* password ) {
             *msgtext = TWIT_UNCOMPRESSED;
             free( uncompressed );
         }
+        msgtext[ msglen ] = 0;
 
         printf( "message: %s\n", msgtext + 1 );
         free( msgtext );
