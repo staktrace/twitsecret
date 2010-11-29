@@ -1,16 +1,63 @@
 ___twitsecret = {
     configured: false,
     enabled: false,
+    requestTokens: null,
 
-    init: function() {
+    prefs: function() {
         var prefs = Components.classes["@mozilla.org/preferences-service;1"].getService( Components.interfaces.nsIPrefService );
         prefs = prefs.getBranch( "extensions.twitsecret." );
+        return prefs;
+    },
+
+    init: function() {
+        var prefs = ___twitsecret.prefs();
         ___twitsecret.configured = prefs.getBoolPref( "configured" );
         ___twitsecret.enable();
     },
 
     configure: function() {
-        var token = ___twitsecret.api.requestToken();
+        if (___twitsecret.requestTokens != null) {
+            var requestTokenList = ___twitsecret.requestTokens;
+            ___twitsecret.requestTokens = null;
+
+            var pinCode = prompt( 'Please enter the PIN code obtained from Twitter' );
+            if (pinCode == null) {
+                return;
+            }
+            var accessTokens = ___twitsecret.api.getAccessToken( requestTokenList, pinCode );
+            if (accessTokens != null) {
+                var prefs = ___twitsecret.prefs();
+                ___twitsecret.configured = true;
+                var desiredParams = ['oauth_token', 'oauth_token_secret', 'user_id', 'screen_name'];
+                for (var key in desiredParams) {
+                    var keyVal = ___twitsecret.api.getResponseValue( accessTokens, desiredParams[key] );
+                    if (keyVal == null) {
+                        ___twitsecret.logError( 'Did not find [' + desiredParams[key] + '] in accessToken response' );
+                        ___twitsecret.configured = false;
+                        break;
+                    }
+                    prefs.setCharPref( desiredParams[key], keyVal );
+                }
+                prefs.setBoolPref( "configured", ___twitsecret.configured );
+            }
+            return;
+        }
+
+        var requestTokenList = ___twitsecret.api.getRequestToken();
+        if (requestTokenList == null) {
+            return;
+        }
+
+        var token = ___twitsecret.api.getResponseValue( requestTokenList, 'oauth_token' );
+        if (token == null) {
+            ___twitsecret.logError( 'Did not find oauth_token in the response' );
+            return;
+        }
+        var authorizeUrl = 'https://api.twitter.com/oauth/authorize?oauth_token=' + token;
+
+        alert( 'Please authenticate yourself at the Twitter website that will load in a few seconds. Once you have obtained the PIN, click on the TwitSecret button again to complete the procedure.' );
+        gBrowser.loadOneTab( authorizeUrl, { inBackground: false } );
+        ___twitsecret.requestTokens = requestTokenList;
     },
 
     enable: function() {
@@ -24,7 +71,7 @@ ___twitsecret = {
             ___twitsecret.logError( 'Unable to obtain appcontent' );
             return;
         }
-        appcontent.addEventListener( "DOMContentLoaded", ___twitsecret.docload, true );
+        appcontent.addEventListener( "DOMContentLoaded", ___twitsecret.mutator.pageloaded, true );
         ___twitsecret.enabled = true;
         ___twitsecret.updateStatus();
     },
@@ -35,7 +82,7 @@ ___twitsecret = {
             ___twitsecret.logError( 'Unable to obtain appcontent' );
             return;
         }
-        appcontent.removeEventListener( "DOMContentLoaded", ___twitsecret.docload, true );
+        appcontent.removeEventListener( "DOMContentLoaded", ___twitsecret.mutator.pageloaded, true );
         ___twitsecret.enabled = false;
         ___twitsecret.updateStatus();
     },
@@ -59,16 +106,14 @@ ___twitsecret = {
         Components.utils.reportError( "TwitSecret: " + errmsg );
     },
 
-    docload: function( e ) {
-        var win = e.originalTarget.defaultView;
-        if (win.top != win) {
-            return;
-        }
-        win.addEventListener( 'load', ___twitsecret.pageload, false );
-    },
-
-    pageload: function( e ) {
-        alert( 'loaddone' );
+    mutator: {
+        pageloaded: function( e ) {
+            var win = e.originalTarget.defaultView;
+            if (win.top != win) {
+                return;
+            }
+            // TODO: mutate pages here
+        },
     },
 
     api: {
@@ -81,10 +126,19 @@ ___twitsecret = {
             return nonce;
         },
 
-        generateSignature: function( method, url, params ) {
+        generateTimestamp: function() {
+            return Math.floor( (new Date()).getTime() / 1000 );
+        },
+
+        generateSignature: function( method, url, params, keyTail ) {
             params.sort();
             var str = method + "&" + encodeURIComponent( url ) + "&" + encodeURIComponent( params.join( "&" ) );
-            return b64_hmac_sha1( ___twitsecret.keys.secretKey + "&", str );
+            if (typeof keyTail == 'string') {
+                keyTail = '&' + keyTail;
+            } else {
+                keyTail = '&';
+            }
+            return b64_hmac_sha1( ___twitsecret.keys.secretKey + keyTail, str );
         },
 
         escapeParamKeyValue: function( value, index, arrayobj ) {
@@ -97,21 +151,17 @@ ___twitsecret = {
             return value.substring( 0, split ) + '="' + value.substring( split + 1 ) + '"';
         },
 
-        requestToken: function() {
-            var method = "POST";
-            var url = "https://api.twitter.com/oauth/request_token";
-            var params = new Array();
-            params.push( 'oauth_callback=chrome://twitsecret/content/requestTokenCallback.html' );
-            params.push( 'oauth_consumer_key=' + ___twitsecret.keys.consumerKey );
-            params.push( 'oauth_nonce=' + ___twitsecret.api.generateNonce() );
-            params.push( 'oauth_signature_method=HMAC-SHA1' );
-            params.push( 'oauth_timestamp=' + Math.floor( (new Date()).getTime() / 1000 ) );
-            params.push( 'oauth_version=1.0' );
-            params = params.map( ___twitsecret.api.escapeParamKeyValue );
-            params.push( encodeURIComponent( 'oauth_signature' ) + '=' + encodeURIComponent( ___twitsecret.api.generateSignature( method, url, params ) ) );
+        getResponseValue: function( responseArray, keyName ) {
+            for (var i = 0; i < responseArray.length; i++) {
+                if (responseArray[i].indexOf( keyName + '=' ) == 0) {
+                    return responseArray[i].substring( keyName.length + 1 );
+                }
+            }
+            return null;
+        },
 
-            var authHeader = "OAuth " + params.map( ___twitsecret.api.quoteParamValue ).join( ", " );
-
+        makeRequest: function( method, url, authParams ) {
+            var authHeader = "OAuth " + authParams.map( ___twitsecret.api.quoteParamValue ).join( ", " );
             var xhr = new XMLHttpRequest();
             xhr.open( method, url, false );
             xhr.setRequestHeader( 'Authorization', authHeader );
@@ -125,9 +175,54 @@ ___twitsecret = {
                 ___twitsecret.logError( "XHR body: " + xhr.responseText );
                 return null;
             }
-            ___twitsecret.logError( "XHR success body: " + xhr.responseText );
+            return xhr.responseText.split( '&' );
+        },
+
+        getRequestToken: function() {
+            var method = "POST";
+            var url = "https://api.twitter.com/oauth/request_token";
+            var params = new Array();
+            params.push( 'oauth_callback=oob' );
+            params.push( 'oauth_consumer_key=' + ___twitsecret.keys.consumerKey );
+            params.push( 'oauth_nonce=' + ___twitsecret.api.generateNonce() );
+            params.push( 'oauth_signature_method=HMAC-SHA1' );
+            params.push( 'oauth_timestamp=' + ___twitsecret.api.generateTimestamp() );
+            params.push( 'oauth_version=1.0' );
+            params = params.map( ___twitsecret.api.escapeParamKeyValue );
+            params.push( encodeURIComponent( 'oauth_signature' ) + '=' + encodeURIComponent( ___twitsecret.api.generateSignature( method, url, params, null ) ) );
+
+            var response = ___twitsecret.api.makeRequest( method, url, params );
+            if (response == null) {
+                return null;
+            }
+            for (var i = 0; i < response.length; i++) {
+                if (response[i] == 'oauth_callback_confirmed=true') {
+                    response.splice( i, 1 );
+                    return response;
+                }
+            }
+            ___twitsecret.logError( "XHR response didn't contain confirmation; response: " + response );
             return null;
         },
+
+        getAccessToken : function( requestTokenList, pinCode ) {
+            var method = "POST";
+            var url = "https://api.twitter.com/oauth/access_token";
+            var params = new Array();
+            params.push( 'oauth_consumer_key=' + ___twitsecret.keys.consumerKey );
+            params.push( 'oauth_nonce=' + ___twitsecret.api.generateNonce() );
+            params.push( 'oauth_signature_method=HMAC-SHA1' );
+            params.push( 'oauth_token=' + ___twitsecret.api.getResponseValue( requestTokenList, 'oauth_token' ) );
+            params.push( 'oauth_timestamp=' + ___twitsecret.api.generateTimestamp() );
+            params.push( 'oauth_verifier=' + pinCode );
+            params.push( 'oauth_version=1.0' );
+            params = params.map( ___twitsecret.api.escapeParamKeyValue );
+            var tokenSecret = ___twitsecret.api.getResponseValue( requestTokenList, 'oauth_token_secret' );
+            params.push( encodeURIComponent( 'oauth_signature' ) + '=' + encodeURIComponent( ___twitsecret.api.generateSignature( method, url, params, tokenSecret ) ) );
+
+            var response = ___twitsecret.api.makeRequest( method, url, params );
+            return response;
+        }
     },
 }
 
