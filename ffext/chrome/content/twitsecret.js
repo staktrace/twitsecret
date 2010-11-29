@@ -130,7 +130,8 @@ ___twitsecret = {
             return Math.floor( (new Date()).getTime() / 1000 );
         },
 
-        generateSignature: function( method, url, params, keyTail ) {
+        addSignature: function( method, url, headerParams, postParams, keyTail ) {
+            var params = headerParams.concat( postParams );
             params.sort();
             var str = method + "&" + encodeURIComponent( url ) + "&" + encodeURIComponent( params.join( "&" ) );
             if (typeof keyTail == 'string') {
@@ -138,7 +139,9 @@ ___twitsecret = {
             } else {
                 keyTail = '&';
             }
-            return b64_hmac_sha1( ___twitsecret.keys.secretKey + keyTail, str );
+            var signature = b64_hmac_sha1( ___twitsecret.keys.secretKey + keyTail, str );
+            headerParams.push( encodeURIComponent( 'oauth_signature' ) + '=' + encodeURIComponent( signature ) );
+            return headerParams;
         },
 
         escapeParamKeyValue: function( value, index, arrayobj ) {
@@ -160,12 +163,15 @@ ___twitsecret = {
             return null;
         },
 
-        makeRequest: function( method, url, authParams ) {
+        makeRequest: function( method, url, authParams, postParams ) {
             var authHeader = "OAuth " + authParams.map( ___twitsecret.api.quoteParamValue ).join( ", " );
+            var postBody = postParams.join( "&" );
             var xhr = new XMLHttpRequest();
             xhr.open( method, url, false );
             xhr.setRequestHeader( 'Authorization', authHeader );
-            xhr.send( null );
+            xhr.setRequestHeader( 'Content-Type', 'application/x-www-form-urlencoded' );
+            xhr.setRequestHeader( 'Content-Length', postBody.length );
+            xhr.send( postBody );
             if (xhr.readyState != 4) {
                 ___twitsecret.logError( "XHR ended with ready state " + xhr.readyState );
                 return null;
@@ -178,20 +184,26 @@ ___twitsecret = {
             return xhr.responseText.split( '&' );
         },
 
-        getRequestToken: function() {
-            var method = "POST";
-            var url = "https://api.twitter.com/oauth/request_token";
+        makeBaseParams: function() {
             var params = new Array();
-            params.push( 'oauth_callback=oob' );
             params.push( 'oauth_consumer_key=' + ___twitsecret.keys.consumerKey );
             params.push( 'oauth_nonce=' + ___twitsecret.api.generateNonce() );
             params.push( 'oauth_signature_method=HMAC-SHA1' );
             params.push( 'oauth_timestamp=' + ___twitsecret.api.generateTimestamp() );
             params.push( 'oauth_version=1.0' );
-            params = params.map( ___twitsecret.api.escapeParamKeyValue );
-            params.push( encodeURIComponent( 'oauth_signature' ) + '=' + encodeURIComponent( ___twitsecret.api.generateSignature( method, url, params, null ) ) );
+            return params;
+        },
 
-            var response = ___twitsecret.api.makeRequest( method, url, params );
+        getRequestToken: function() {
+            var method = "POST";
+            var url = "https://api.twitter.com/oauth/request_token";
+            var params = ___twitsecret.api.makeBaseParams();
+            params.push( 'oauth_callback=oob' );
+            params = params.map( ___twitsecret.api.escapeParamKeyValue );
+            var postParams = new Array();
+            params = ___twitsecret.api.addSignature( method, url, params, postParams, null );
+
+            var response = ___twitsecret.api.makeRequest( method, url, params, postParams );
             if (response == null) {
                 return null;
             }
@@ -205,25 +217,35 @@ ___twitsecret = {
             return null;
         },
 
-        getAccessToken : function( requestTokenList, pinCode ) {
+        getAccessToken: function( requestTokenList, pinCode ) {
             var method = "POST";
             var url = "https://api.twitter.com/oauth/access_token";
-            var params = new Array();
-            params.push( 'oauth_consumer_key=' + ___twitsecret.keys.consumerKey );
-            params.push( 'oauth_nonce=' + ___twitsecret.api.generateNonce() );
-            params.push( 'oauth_signature_method=HMAC-SHA1' );
+            var params = ___twitsecret.api.makeBaseParams();
             params.push( 'oauth_token=' + ___twitsecret.api.getResponseValue( requestTokenList, 'oauth_token' ) );
-            params.push( 'oauth_timestamp=' + ___twitsecret.api.generateTimestamp() );
             params.push( 'oauth_verifier=' + pinCode );
-            params.push( 'oauth_version=1.0' );
             params = params.map( ___twitsecret.api.escapeParamKeyValue );
+            var postParams = new Array();
             var tokenSecret = ___twitsecret.api.getResponseValue( requestTokenList, 'oauth_token_secret' );
-            params.push( encodeURIComponent( 'oauth_signature' ) + '=' + encodeURIComponent( ___twitsecret.api.generateSignature( method, url, params, tokenSecret ) ) );
+            params = ___twitsecret.api.addSignature( method, url, params, postParams, tokenSecret );
+            return ___twitsecret.api.makeRequest( method, url, params, postParams );
+        },
 
-            var response = ___twitsecret.api.makeRequest( method, url, params );
-            return response;
+        postTweet: function( msg ) {
+            var method = "POST";
+            var url = "https://api.twitter.com/1/statuses/update.json";
+            var params = ___twitsecret.api.makeBaseParams();
+            params.push( 'oauth_token=' + ___twitsecret.prefs().getCharPref( 'oauth_token' ) );
+            params = params.map( ___twitsecret.api.escapeParamKeyValue );
+            var postParams = new Array();
+            postParams.push( 'status=' + msg );
+            postParams = postParams.map( ___twitsecret.api.escapeParamKeyValue );
+            var tokenSecret = ___twitsecret.prefs().getCharPref( 'oauth_token_secret' );
+            params = ___twitsecret.api.addSignature( method, url, params, postParams, tokenSecret );
+            return ___twitsecret.api.makeRequest( method, url, params, postParams );
         }
     },
 }
 
-window.addEventListener( 'load', ___twitsecret.init, false );
+if (window.toString() == "[object ChromeWindow]") {
+    window.addEventListener( 'load', ___twitsecret.init, false );
+}
