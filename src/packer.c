@@ -6,6 +6,8 @@
 #define READ(x) ((*x++) & 0xFF)
 #define PUT(x) *dst++ = (char)((x) & 0xFF); dstlen--;
 
+#define ESCAPE_CHAR 0x00
+
 size_t write_utf8( char* dst, size_t dstlen, int x ) {
     if (x < 0x80) {
         assert( dstlen >= 1 );
@@ -41,28 +43,22 @@ size_t pack( char* dst, size_t dstlen, char* src, size_t srclen, size_t* numchar
         pair = (pair << 8) | READ(src);
         srclen -= 2;
 
-        if (pair <= 0x001F) {
-            WRITE( 0x09 );
-            WRITE( 0x1000 + pair );
-        } else if (pair >= 0x007F && pair <= 0x009F) {
-            WRITE( 0x09 );
-            WRITE( 0x2000 + (pair - 0x7F) );
+        if (pair == 0x0000) {
+            WRITE( ESCAPE_CHAR );
+            WRITE( 0x0000 );
         } else if (pair >= 0xD800 && pair <= 0xDFFF) {
-            WRITE( 0x09 );
-            WRITE( 0x3000 + (pair - 0xD800) );
-        } else if (pair >= 0xFDD0 && pair <= 0xFDEF) {
-            WRITE( 0x09 );
-            WRITE( 0x4000 + (pair - 0xFDD0) );
+            WRITE( ESCAPE_CHAR );
+            WRITE( 0x0001 + (pair - 0xD800) );
         } else if (pair >= 0xFFFE && pair <= 0xFFFF) {
-            WRITE( 0x09 );
-            WRITE( 0x5000 + (pair - 0xFFFE) );
+            WRITE( ESCAPE_CHAR );
+            WRITE( 0x0801 + (pair - 0xFFFE) );
         } else {
             WRITE( pair );
         }
     }
     if (srclen > 0) {
-        WRITE( 0x09 );
-        WRITE( 0x6000 + READ(src) );
+        WRITE( ESCAPE_CHAR );
+        WRITE( 0x0803 + READ(src) );
     }
     return dst - dst_orig;
 }
@@ -70,35 +66,15 @@ size_t pack( char* dst, size_t dstlen, char* src, size_t srclen, size_t* numchar
 size_t unpack( char* dst, size_t dstlen, char* src, size_t srclen ) {
     char* dst_orig = dst;
     while (srclen > 0) {
+        int escaped = 0;
         int c = READ(src);
-        if (c == 0x09) {
+        if (c == ESCAPE_CHAR) {
+            escaped = 1;
             srclen--;
-
-            assert( srclen > 2 );
             c = READ(src);
-            assert( (c & 0xF0) == 0xE0 );
-            c = (c & 0xF) << 12;
-            c |= ((READ(src) & 0x3F) << 6);
-            c |= (READ(src) & 0x3F);
-            srclen -= 3;
+        }
 
-            if (c >= 0x6000) {
-                assert( dstlen >= 1 );
-                PUT( c - 0x6000 );
-                assert( srclen == 0 );
-                continue;
-            } else if (c >= 0x5000) {
-                c = c - 0x5000 + 0xFFFE;
-            } else if (c >= 0x4000) {
-                c = c - 0x4000 + 0xFDD0;
-            } else if (c >= 0x3000) {
-                c = c - 0x3000 + 0xD800;
-            } else if (c >= 0x2000) {
-                c = c - 0x2000 + 0x7F;
-            } else if (c >= 0x1000) {
-                c = c - 0x1000;
-            }
-        } else if ((c & 0x80) == 0) {
+        if ((c & 0x80) == 0) {
             srclen--;
         } else if ((c & 0xE0) == 0xC0) {
             assert( srclen > 1 );
@@ -114,6 +90,20 @@ size_t unpack( char* dst, size_t dstlen, char* src, size_t srclen ) {
         } else {
             abort();
         }
+
+        if (escaped) {
+            if (c >= 0x0803) {
+                assert( dstlen >= 1 );
+                PUT( c - 0x0803 );
+                assert( srclen == 0 );
+                continue;
+            } else if (c >= 0x0801) {
+                c = (c - 0x0801) + 0xFFFE;
+            } else if (c >= 0x0001) {
+                c = (c - 0x0001) + 0xD800;
+            }
+        }
+
         assert( dstlen >= 2 );
         PUT( c >> 8 );
         PUT( c );
