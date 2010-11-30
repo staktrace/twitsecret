@@ -189,7 +189,7 @@ void twit_gen_keys( char* username, char* password ) {
 
     {   // write private key to file
         char* seckeytext = malloc( KEY_BUFLEN );
-        size_t seckeylen = gcry_sexp_sprint( seckey, 0, seckeytext, KEY_BUFLEN );
+        size_t seckeylen = gcry_sexp_sprint( seckey, GCRYSEXP_FMT_DEFAULT, seckeytext, KEY_BUFLEN );
         assert( seckeylen < KEY_BUFLEN );
         seckeylen = twit_encrypt( seckeytext, seckeylen, password, strlen( password ) );
 
@@ -204,7 +204,7 @@ void twit_gen_keys( char* username, char* password ) {
 
     {   // publish public key
         char* pubkeytext = malloc( KEY_BUFLEN );
-        size_t pubkeylen = gcry_sexp_sprint( pubkey, 0, pubkeytext, KEY_BUFLEN );
+        size_t pubkeylen = gcry_sexp_sprint( pubkey, GCRYSEXP_FMT_DEFAULT, pubkeytext, KEY_BUFLEN );
         assert( pubkeylen < KEY_BUFLEN );
 
         {   // write to file
