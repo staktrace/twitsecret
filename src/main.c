@@ -128,8 +128,19 @@ size_t twit_decrypt( char* ciphertext, size_t cipherlen, char* password, size_t 
 }
 
 char* twit_mkfilename( char* username, const char* extension ) {
+    int i = strlen( username );
+    while (i-- > 0) {
+        if (username[i] < '0' || username[i] > '9') {
+            break;
+        }
+    }
     char* filename = malloc( 2 * strlen( username ) + strlen( extension ) + 1 );
-    twit_hexdump( filename, username, strlen( username ) );
+    if (i < 0) {
+        // for an all-digit username just keep it as-is
+        strcpy( filename, username );
+    } else {
+        twit_hexdump( filename, username, strlen( username ) );
+    }
     strcat( filename, extension );
     return filename;
 }
