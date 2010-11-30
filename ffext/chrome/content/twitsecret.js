@@ -130,23 +130,31 @@ ___twitsecret = {
             return Math.floor( (new Date()).getTime() / 1000 );
         },
 
+        urlencode: function( str ) {
+            return encodeURIComponent( str ).replace( /!/g, '%21' )
+                                            .replace( /'/g, '%27' )
+                                            .replace( /\(/g, '%28' )
+                                            .replace( /\)/g, '%29' )
+                                            .replace( /\*/g, '%2A' );
+        },
+
         addSignature: function( method, url, headerParams, postParams, keyTail ) {
             var params = headerParams.concat( postParams );
             params.sort();
-            var str = method + "&" + encodeURIComponent( url ) + "&" + encodeURIComponent( params.join( "&" ) );
+            var str = method + "&" + ___twitsecret.api.urlencode( url ) + "&" + ___twitsecret.api.urlencode( params.join( "&" ) );
             if (typeof keyTail == 'string') {
                 keyTail = '&' + keyTail;
             } else {
                 keyTail = '&';
             }
             var signature = b64_hmac_sha1( ___twitsecret.keys.secretKey + keyTail, str );
-            headerParams.push( encodeURIComponent( 'oauth_signature' ) + '=' + encodeURIComponent( signature ) );
+            headerParams.push( ___twitsecret.api.urlencode( 'oauth_signature' ) + '=' + ___twitsecret.api.urlencode( signature ) );
             return headerParams;
         },
 
         escapeParamKeyValue: function( value, index, arrayobj ) {
             var split = value.indexOf( "=" );
-            return encodeURIComponent( value.substring( 0, split ) ) + '=' + encodeURIComponent( value.substring( split + 1 ) );
+            return ___twitsecret.api.urlencode( value.substring( 0, split ) ) + '=' + ___twitsecret.api.urlencode( value.substring( split + 1 ) );
         },
 
         quoteParamValue: function( value, index, arrayobj ) {
@@ -242,7 +250,7 @@ ___twitsecret = {
             var tokenSecret = ___twitsecret.prefs().getCharPref( 'oauth_token_secret' );
             params = ___twitsecret.api.addSignature( method, url, params, postParams, tokenSecret );
             return ___twitsecret.api.makeRequest( method, url, params, postParams );
-        }
+        },
     },
 }
 
