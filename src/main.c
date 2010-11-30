@@ -216,8 +216,32 @@ void twit_gen_keys( char* username, char* password ) {
         free( pubkeytext );
     }
 
+    {   // print pubkey
+        gcry_sexp_t nvalue = gcry_sexp_find_token( pubkey, "n", 0 );
+        char* value = malloc( KEY_BUFLEN );
+        size_t nlen = gcry_sexp_sprint( nvalue, GCRYSEXP_FMT_ADVANCED, value, KEY_BUFLEN );
+        assert( nlen < KEY_BUFLEN );
+        value[ nlen ] = 0;
+        printf( "%s\n", value );
+        free( value );
+        gcry_sexp_release( nvalue );
+    }
+
     gcry_sexp_release( pubkey );
     gcry_sexp_release( seckey );
+}
+
+void twit_add_pubkey( char* username, char* nvalue ) {
+    char* pubkeytext = malloc( KEY_BUFLEN );
+    sprintf( pubkeytext, "(public-key (rsa (n %s) (e 5:65537)))", nvalue );
+
+    {   // write to file
+        char* filename = twit_mkfilename( username, ".pub" );
+        twit_writefile( filename, pubkeytext, strlen( pubkeytext ) );
+        free( filename );
+    }
+
+    free( pubkeytext );
 }
 
 void twit_test_encrypt( char* message, char** usernames, int usernamecount ) {
@@ -319,7 +343,6 @@ void twit_test_encrypt( char* message, char** usernames, int usernamecount ) {
         char* packed = malloc( MSG_BUFLEN );
         size_t numchars;
         size_t packsize = pack( packed, MSG_BUFLEN, tweet, tweetlen, &numchars );
-        printf( "Message written in %lu unicode characters\n", numchars );
         memcpy( tweet, packed, packsize );
         tweetlen = packsize;
         free( packed );
@@ -417,10 +440,10 @@ void twit_test_decrypt( char* username, char* password ) {
         }
         msgtext[ msglen ] = 0;
 
-        printf( "message: %s\n", msgtext + 1 );
+        printf( "%s\n", msgtext + 1 );
         free( msgtext );
     } else {
-        printf( "error: unable to decrypt message\n" );
+        fprintf( stderr, "Unable to decrypt message\n" );
     }
 
     free( symkey );
@@ -432,7 +455,9 @@ void twit_usage() {
     printf( "Usage: twitsecret <command> [command-args]\n" );
     printf( "Commands:\n" );
     printf( "   init <username> <password>\n" );
-    printf( "       Generates a new keypair for the user\n" );
+    printf( "       Generates a new keypair for the user and prints the n-value from the public key\n" );
+    printf( "   add <username> <n-value>\n" );
+    printf( "       Registers another user's public key with the given n-value into the local store.\n" );
     printf( "   enc <message> [<username> [<username> [...]]]\n" );
     printf( "       Encrypt the message using the pubkeys belonging to the specified users\n" );
     printf( "   dec <username> <password>\n" );
@@ -442,6 +467,8 @@ void twit_usage() {
 int main( int argc, char** argv ) {
     if (argc == 4 && strcasecmp( argv[1], "init" ) == 0) {
         twit_gen_keys( argv[2], argv[3] );
+    } else if (argc == 4 && strcasecmp( argv[1], "add" ) == 0) {
+        twit_add_pubkey( argv[2], argv[3] );
     } else if (argc >= 3 && strcasecmp( argv[1], "enc" ) == 0) {
         twit_test_encrypt( argv[2], argv + 3, argc - 3 );
     } else if (argc == 4 && strcasecmp( argv[1], "dec" ) == 0) {
