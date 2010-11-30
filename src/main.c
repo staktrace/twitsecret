@@ -24,6 +24,7 @@
 #define MAX_RECIPIENTS 255
 #define TWIT_UNCOMPRESSED 0
 #define TWIT_ZLIB 1
+#define TWIT_FOLDER "/.twitsecret"
 
 #define CHECK_GCRY(x) { gcry_error_t ret = (x); if (ret) { fprintf( stderr, "Error %d:%s in %s on line %d\n", gcry_err_code( ret ), gcry_strerror( ret ), gcry_strsource( ret ), __LINE__ ); abort(); } }
 #define CHECK_SYS(x) { if ((x) < 0) { fprintf( stderr, "Error %s on line %d\n", strerror( errno ), __LINE__ ); abort(); } }
@@ -133,16 +134,36 @@ char* twit_mkfilename( char* username, const char* extension ) {
     return filename;
 }
 
+char* twit_fullpath( char* filename ) {
+    char* homepath = getenv( "HOME" );
+    char* fullpath = malloc( strlen( homepath ) + strlen( TWIT_FOLDER ) + 1 + strlen( filename ) + 1 );
+    strcpy( fullpath, homepath );
+    strcat( fullpath, TWIT_FOLDER );
+    int ret = mkdir( fullpath, 0700 );
+    if (! (ret == 0 || errno == EEXIST)) {
+        CHECK_SYS( ret );
+    }
+    strcat( fullpath, "/" );
+    strcat( fullpath, filename );
+    return fullpath;
+}
+
 void twit_writefile( char* filename, char* data, size_t datalen ) {
-    int outfile = open( filename, O_WRONLY | O_TRUNC | O_CREAT, S_IRUSR | S_IWUSR );
+    char* fullname = twit_fullpath( filename );
+    int outfile = open( fullname, O_WRONLY | O_TRUNC | O_CREAT, S_IRUSR | S_IWUSR );
+    free( fullname );
+
     CHECK_SYS( outfile );
     CHECK_SYS( write( outfile, data, datalen ) );
     CHECK_SYS( close( outfile ) );
 }
 
 int twit_readfile( char* filename, char* dest, size_t destlen ) {
+    char* fullname = twit_fullpath( filename );
     int readlen;
-    int infile = open( filename, O_RDONLY );
+    int infile = open( fullname, O_RDONLY );
+    free( fullname );
+
     CHECK_SYS( infile );
     CHECK_SYS( readlen = read( infile, dest, destlen ) );
     CHECK_SYS( close( infile ) );
