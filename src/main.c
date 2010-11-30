@@ -244,7 +244,7 @@ void twit_add_pubkey( char* username, char* nvalue ) {
     free( pubkeytext );
 }
 
-void twit_test_encrypt( char* message, char** usernames, int usernamecount ) {
+void twit_pub_encrypt( char* message, char** usernames, int usernamecount ) {
     assert( strlen( message ) <= MAX_MESSAGE_LENGTH );
     assert( usernamecount <= MAX_RECIPIENTS );
 
@@ -354,7 +354,7 @@ void twit_test_encrypt( char* message, char** usernames, int usernamecount ) {
     free( tweet );
 }
 
-void twit_test_decrypt( char* username, char* password ) {
+void twit_pub_decrypt( char* username, char* password ) {
     gcry_sexp_t seckey;
 
     {   // get the secret key
@@ -470,9 +470,9 @@ int main( int argc, char** argv ) {
     } else if (argc == 4 && strcasecmp( argv[1], "add" ) == 0) {
         twit_add_pubkey( argv[2], argv[3] );
     } else if (argc >= 3 && strcasecmp( argv[1], "enc" ) == 0) {
-        twit_test_encrypt( argv[2], argv + 3, argc - 3 );
+        twit_pub_encrypt( argv[2], argv + 3, argc - 3 );
     } else if (argc == 4 && strcasecmp( argv[1], "dec" ) == 0) {
-        twit_test_decrypt( argv[2], argv[3] );
+        twit_pub_decrypt( argv[2], argv[3] );
     } else {
         twit_usage();
     }
