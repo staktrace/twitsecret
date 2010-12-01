@@ -147,12 +147,10 @@ ___twitsecret = {
             }
             params.sort();
             var str = method + "&" + ___twitsecret.api.urlencode( url ) + "&" + ___twitsecret.api.urlencode( params.join( "&" ) );
-            if (typeof keyTail == 'string') {
-                keyTail = '&' + keyTail;
-            } else {
-                keyTail = '&';
+            if (typeof keyTail != 'string') {
+                keyTail = ___twitsecret.prefs().getCharPref( 'oauth_token_secret' );
             }
-            var signature = b64_hmac_sha1( ___twitsecret.keys.secretKey + keyTail, str );
+            var signature = b64_hmac_sha1( ___twitsecret.keys.secretKey + '&' + keyTail, str );
             headerParams.push( ___twitsecret.api.urlencode( 'oauth_signature' ) + '=' + ___twitsecret.api.urlencode( signature ) );
             return headerParams;
         },
@@ -197,43 +195,45 @@ ___twitsecret = {
             return xhr.responseText;
         },
 
-        makeBaseParams: function() {
+        makeBaseParams: function( includeOauthToken ) {
             var params = new Array();
             params.push( 'oauth_consumer_key=' + ___twitsecret.keys.consumerKey );
             params.push( 'oauth_nonce=' + ___twitsecret.api.generateNonce() );
             params.push( 'oauth_signature_method=HMAC-SHA1' );
             params.push( 'oauth_timestamp=' + ___twitsecret.api.generateTimestamp() );
             params.push( 'oauth_version=1.0' );
+            if (includeOauthToken) {
+                params.push( 'oauth_token=' + ___twitsecret.prefs().getCharPref( 'oauth_token' ) );
+            }
             return params;
         },
 
         getRequestToken: function() {
             var method = "POST";
             var url = "https://api.twitter.com/oauth/request_token";
-            var params = ___twitsecret.api.makeBaseParams();
+            var params = ___twitsecret.api.makeBaseParams( false );
             params.push( 'oauth_callback=oob' );
             params = params.map( ___twitsecret.api.escapeParamKeyValue );
-            params = ___twitsecret.api.addSignature( method, url, params, null, null );
+            params = ___twitsecret.api.addSignature( method, url, params, null, "" );
 
             var response = ___twitsecret.api.makeRequest( method, url, params, null );
-            if (response == null) {
-                return null;
-            }
-            response = response.split( '&' );
-            for (var i = 0; i < response.length; i++) {
-                if (response[i] == 'oauth_callback_confirmed=true') {
-                    response.splice( i, 1 );
-                    return response;
+            if (response != null) {
+                response = response.split( '&' );
+                for (var i = 0; i < response.length; i++) {
+                    if (response[i] == 'oauth_callback_confirmed=true') {
+                        response.splice( i, 1 );
+                        return response;
+                    }
                 }
+                ___twitsecret.logError( "XHR response didn't contain confirmation; response: " + response );
             }
-            ___twitsecret.logError( "XHR response didn't contain confirmation; response: " + response );
             return null;
         },
 
         getAccessToken: function( requestTokenList, pinCode ) {
             var method = "POST";
             var url = "https://api.twitter.com/oauth/access_token";
-            var params = ___twitsecret.api.makeBaseParams();
+            var params = ___twitsecret.api.makeBaseParams( false );
             params.push( 'oauth_token=' + ___twitsecret.api.getResponseValue( requestTokenList, 'oauth_token' ) );
             params.push( 'oauth_verifier=' + pinCode );
             params = params.map( ___twitsecret.api.escapeParamKeyValue );
@@ -246,28 +246,74 @@ ___twitsecret = {
             return response;
         },
 
+        verifyCredentials: function() {
+            var method = "GET";
+            var url = "https://api.twitter.com/1/account/verify_credentials.json";
+            var params = ___twitsecret.api.makeBaseParams( true );
+            params = params.map( ___twitsecret.api.escapeParamKeyValue );
+            params = ___twitsecret.api.addSignature( method, url, params, null, null );
+            return (___twitsecret.api.makeRequest( method, url, params, null ) != null);
+        },
+
+        publishKey: function( key ) {
+            var method = "POST";
+            var url = "https://api.twitter.com/1/account/update_profile.json?description=" + ___twitsecret.api.urlencode( "TwitSecret:" + key );
+            var params = ___twitsecret.api.makeBaseParams( true );
+            params = params.map( ___twitsecret.api.escapeParamKeyValue );
+            params = ___twitsecret.api.addSignature( method, url, params, null, null );
+            return (___twitsecret.api.makeRequest( method, url, params, null ) != null);
+        },
+
+        getFriends: function() {
+            var method = "GET";
+            var url = "https://api.twitter.com/1/friends/ids.json";
+            var params = ___twitsecret.api.makeBaseParams( true );
+            params = params.map( ___twitsecret.api.escapeParamKeyValue );
+            params = ___twitsecret.api.addSignature( method, url, params, null, null );
+            var response = ___twitsecret.api.makeRequest( method, url, params, null );
+            if (response != null) {
+                response = eval( response );
+                return response.ids;
+            }
+            return null;
+        },
+
+        getKey: function( userId ) {
+            var method = "GET";
+            var url = "https://api.twitter.com/1/users/show.json?user_id=" + userId;
+            var params = ___twitsecret.api.makeBaseParams( true );
+            params = params.map( ___twitsecret.api.escapeParamKeyValue );
+            params = ___twitsecret.api.addSignature( method, url, params, null, null );
+            var response = ___twitsecret.api.makeRequest( method, url, params, null );
+            if (response != null) {
+                response = eval( response );
+                response = response.description;
+                if (response.indexOf( "TwitSecret:" ) == 0) {
+                    return response.substring( 11 );
+                }
+                ___twitsecret.logError( "Specified user is not using TwitSecret" );
+            }
+            return null;
+        },
+
         postTweet: function( msg ) {
             var method = "POST";
             var url = "https://api.twitter.com/1/statuses/update.json";
-            var params = ___twitsecret.api.makeBaseParams();
-            params.push( 'oauth_token=' + ___twitsecret.prefs().getCharPref( 'oauth_token' ) );
+            var params = ___twitsecret.api.makeBaseParams( true );
             params = params.map( ___twitsecret.api.escapeParamKeyValue );
             var postParams = new Array();
             postParams.push( 'status=' + msg );
             postParams = postParams.map( ___twitsecret.api.escapeParamKeyValue );
-            var tokenSecret = ___twitsecret.prefs().getCharPref( 'oauth_token_secret' );
-            params = ___twitsecret.api.addSignature( method, url, params, postParams, tokenSecret );
+            params = ___twitsecret.api.addSignature( method, url, params, postParams, null );
             return ___twitsecret.api.makeRequest( method, url, params, postParams );
         },
 
         getTweets: function() {
             var method = "GET";
             var url = "https://api.twitter.com/1/statuses/friends_timeline.json?trim_user=1";
-            var params = ___twitsecret.api.makeBaseParams();
-            params.push( 'oauth_token=' + ___twitsecret.prefs().getCharPref( 'oauth_token' ) );
+            var params = ___twitsecret.api.makeBaseParams( true );
             params = params.map( ___twitsecret.api.escapeParamKeyValue );
-            var tokenSecret = ___twitsecret.prefs().getCharPref( 'oauth_token_secret' );
-            params = ___twitsecret.api.addSignature( method, url, params, null, tokenSecret );
+            params = ___twitsecret.api.addSignature( method, url, params, null, null );
             return ___twitsecret.api.makeRequest( method, url, params, null );
         },
     },
