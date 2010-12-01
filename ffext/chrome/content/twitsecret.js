@@ -317,6 +317,116 @@ ___twitsecret = {
             return ___twitsecret.api.makeRequest( method, url, params, null );
         },
     },
+
+    backend: {
+        getPlatform: function() {
+            var archCompiler = Components.classes["@mozilla.org/xre/app-info;1"].getService( Components.interfaces.nsIXULRuntime ).XPCOMABI;
+            var ix = archCompiler.indexOf( "-" );
+            return (ix < 0 ? archCompiler : archCompiler.substring( 0, ix ));
+        },
+
+        getProcess: function() {
+            var myProjId = "projects.twitsecret.ffext@staktrace.com";
+            var em = Components.classes["@mozilla.org/extensions/manager;1"].getService( Components.interfaces.nsIExtensionManager );
+            var file = em.getInstallLocation( myProjId ).getItemFile( myProjId, "backend/" + ___twitsecret.backend.getPlatform() + "/twitsecret" );
+            var process = Components.classes["@mozilla.org/process/util;1"].createInstance( Components.interfaces.nsIProcess );
+            process.init( file );
+            return process;
+        },
+
+        getFile: function( filename ) {
+            var dirs = Components.classes["@mozilla.org/file/directory_service;1"].getService( Components.interfaces.nsIProperties );
+            var file = dirs.get( "Home", Components.interfaces.nsIFile );
+            file.append( ".twitsecret" );
+            file.append( filename );
+            return file;
+        },
+
+        readFile: function( filename ) {
+            var data = "";
+            var file = ___twitsecret.backend.getFile( filename );
+            var fstream = Components.classes["@mozilla.org/network/file-input-stream;1"].createInstance( Components.interfaces.nsIFileInputStream );
+            var cstream = Components.classes["@mozilla.org/intl/converter-input-stream;1"].createInstance( Components.interfaces.nsIConverterInputStream );
+            fstream.init( file, -1, 0, 0 );
+            cstream.init( fstream, "UTF-8", 0, 0 );
+            var str = {};
+            var read = 0;
+            do {
+                read = cstream.readString( 0xffffffff, str );
+                data += str.value;
+            } while (read != 0);
+            cstream.close();
+            return data;
+        },
+
+        writeFile: function( filename, msg ) {
+            var file = ___twitsecret.backend.getFile( filename );
+            var fstream = Components.classes["@mozilla.org/network/file-output-stream;1"].createInstance( Components.interfaces.nsIFileOutputStream );
+            var cstream = Components.classes["@mozilla.org/intl/converter-output-stream;1"].createInstance( Components.interfaces.nsIConverterOutputStream );
+            fstream.init( file, 0x02 | 0x08 | 0x20, 0600, 0 ); // write, create, truncate
+            cstream.init( fstream, "UTF-8", 0, 0 );
+            cstream.writeString( msg );
+            cstream.close();
+        },
+
+        init: function( userId ) {
+            var process = ___twitsecret.backend.getProcess();
+            var args = new Array();
+            args.push( "init" );
+            args.push( userId );
+            args.push( "password" );
+            process.run( true, args, args.length );
+            if (process.exitValue != 0) {
+                return null;
+            }
+
+            var pubkey = ___twitsecret.backend.readFile( userId + ".pub" );
+            var ix = pubkey.indexOf( "(n " ) + 3;
+            var endIx = pubkey.indexOf( ")", ix );
+            return pubkey.substring( ix, endIx );
+        },
+
+        add: function( userId, pubkey ) {
+            var process = ___twitsecret.backend.getProcess();
+            var args = new Array();
+            args.push( "add" );
+            args.push( userId );
+            args.push( pubkey );
+            process.run( true, args, args.length );
+            return (process.exitValue == 0);
+        },
+
+        encrypt: function( msg, recipients ) {
+            if (msg != null) {
+                ___twitsecret.backend.writeFile( "twitsecret.plain", msg );
+            }
+            var process = ___twitsecret.backend.getProcess();
+            var args = new Array();
+            args.push( "enc" );
+            args = args.concat( recipients );
+            process.run( true, args, args.length );
+            if (process.exitValue != 0) {
+                return null;
+            }
+            return ___twitsecret.backend.readFile( "twitsecret.cipher" );
+        },
+
+        decrypt: function( msg, userId ) {
+            if (msg != null) {
+                ___twitsecret.backend.writeFile( "twitsecret.cipher", msg );
+            }
+            var process = ___twitsecret.backend.getProcess();
+            var args = new Array();
+            args.push( "dec" );
+            args.push( userId );
+            args.push( "password" );
+            process.run( true, args, args.length );
+            if (process.exitValue != 0) {
+                return null;
+            }
+            return ___twitsecret.backend.readFile( "twitsecret.plain" );
+        },
+    },
 }
 
 if (window.toString() == "[object ChromeWindow]") {
