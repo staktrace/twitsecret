@@ -25,6 +25,8 @@
 #define TWIT_UNCOMPRESSED 0
 #define TWIT_ZLIB 1
 #define TWIT_FOLDER "/.twitsecret"
+#define TWIT_PLAINTEXT "twitsecret.plain"
+#define TWIT_CIPHERTEXT "twitsecret.cipher"
 
 #define CHECK_GCRY(x) { gcry_error_t ret = (x); if (ret) { fprintf( stderr, "Error %d:%s in %s on line %d\n", gcry_err_code( ret ), gcry_strerror( ret ), gcry_strsource( ret ), __LINE__ ); abort(); } }
 #define CHECK_SYS(x) { if ((x) < 0) { fprintf( stderr, "Error %s on line %d\n", strerror( errno ), __LINE__ ); abort(); } }
@@ -204,7 +206,7 @@ void twit_gen_keys( char* username, char* password ) {
 
     {   // publish public key
         char* pubkeytext = malloc( KEY_BUFLEN );
-        size_t pubkeylen = gcry_sexp_sprint( pubkey, GCRYSEXP_FMT_DEFAULT, pubkeytext, KEY_BUFLEN );
+        size_t pubkeylen = gcry_sexp_sprint( pubkey, GCRYSEXP_FMT_ADVANCED, pubkeytext, KEY_BUFLEN );
         assert( pubkeylen < KEY_BUFLEN );
 
         {   // write to file
@@ -214,17 +216,6 @@ void twit_gen_keys( char* username, char* password ) {
         }
 
         free( pubkeytext );
-    }
-
-    {   // print pubkey
-        gcry_sexp_t nvalue = gcry_sexp_find_token( pubkey, "n", 0 );
-        char* value = malloc( KEY_BUFLEN );
-        size_t nlen = gcry_sexp_sprint( nvalue, GCRYSEXP_FMT_ADVANCED, value, KEY_BUFLEN );
-        assert( nlen < KEY_BUFLEN );
-        value[ nlen ] = 0;
-        printf( "%s\n", value );
-        free( value );
-        gcry_sexp_release( nvalue );
     }
 
     gcry_sexp_release( pubkey );
@@ -244,8 +235,11 @@ void twit_add_pubkey( char* username, char* nvalue ) {
     free( pubkeytext );
 }
 
-void twit_pub_encrypt( char* message, char** usernames, int usernamecount ) {
-    assert( strlen( message ) <= MAX_MESSAGE_LENGTH );
+void twit_pub_encrypt( char** usernames, int usernamecount ) {
+    char* message = malloc( MSG_BUFLEN );
+    size_t msglen = twit_readfile( TWIT_PLAINTEXT, message, MSG_BUFLEN );
+
+    assert( msglen <= MAX_MESSAGE_LENGTH );
     assert( usernamecount <= MAX_RECIPIENTS );
 
     char* tweet = malloc( MSG_BUFLEN );
@@ -319,7 +313,7 @@ void twit_pub_encrypt( char* message, char** usernames, int usernamecount ) {
         char* msgtext = malloc( MSG_BUFLEN );
         *msgtext = TWIT_UNCOMPRESSED;
         strcpy( msgtext + 1, message );
-        size_t msglen = strlen( message ) + 1;
+        msglen++;
 
         {
             size_t compressedSize = compressBound( msglen );
@@ -348,13 +342,14 @@ void twit_pub_encrypt( char* message, char** usernames, int usernamecount ) {
         free( packed );
     }
 
-    twit_writefile( "twitsecret.msg", tweet, tweetlen );
+    twit_writefile( TWIT_CIPHERTEXT, tweet, tweetlen );
 
     free( symkey );
     free( tweet );
+    free( message );
 }
 
-void twit_pub_decrypt( char* username, char* password ) {
+int twit_pub_decrypt( char* username, char* password ) {
     gcry_sexp_t seckey;
 
     {   // get the secret key
@@ -375,7 +370,7 @@ void twit_pub_decrypt( char* username, char* password ) {
     }
 
     char* tweet = malloc( MSG_BUFLEN );
-    int tweetlen = twit_readfile( "twitsecret.msg", tweet, MSG_BUFLEN );
+    int tweetlen = twit_readfile( TWIT_CIPHERTEXT, tweet, MSG_BUFLEN );
     int tweetix = 0;
 
     {   // unpack the utf-8 back to binary
@@ -390,7 +385,7 @@ void twit_pub_decrypt( char* username, char* password ) {
 
     int numusers = tweet[ tweetix++ ] & 0xFF;
 
-    int found = 0;
+    int notfound = 1;
     int i;
     for (i = 0; i < numusers; i++) {
         // parse the symmetric key and decrypt it
@@ -398,7 +393,7 @@ void twit_pub_decrypt( char* username, char* password ) {
         memcpy( &cipherlen, tweet + tweetix, sizeof(cipherlen) );
         tweetix += sizeof(cipherlen);
 
-        if (found == 0) {
+        if (notfound == 1) {
             // try decrypting the pubkey-encrypted symkey to see if it matches the username
             gcry_sexp_t symkeydata, symkeyplain;
             const char* symkeyptr;
@@ -412,7 +407,7 @@ void twit_pub_decrypt( char* username, char* password ) {
             assert( symkeyptr = gcry_sexp_nth_data( symkeyplain, 0, &symkeylen ) );
             if (symkeylen == strlen( username ) + 1 + SYMM_KEY_BYTES && memcmp( symkeyptr, username, strlen( username ) ) == 0 && symkeyptr[ strlen( username ) ] == '@') {
                 memcpy( symkey, symkeyptr + strlen( username ) + 1, symkeylen - strlen( username ) - 1 );
-                found = 1;
+                notfound = 0;
             }
             gcry_sexp_release( symkeyplain );
         } else {
@@ -421,7 +416,9 @@ void twit_pub_decrypt( char* username, char* password ) {
         }
     }
 
-    if (found) {
+    if (notfound) {
+        fprintf( stderr, "Unable to decrypt message\n" );
+    } else {
         // parse the message and decrypt it
         char* msgtext = malloc( MSG_BUFLEN );
         size_t msglen = tweetlen - tweetix;
@@ -438,17 +435,16 @@ void twit_pub_decrypt( char* username, char* password ) {
             *msgtext = TWIT_UNCOMPRESSED;
             free( uncompressed );
         }
-        msgtext[ msglen ] = 0;
 
-        printf( "%s\n", msgtext + 1 );
+        twit_writefile( TWIT_PLAINTEXT, msgtext + 1, msglen - 1 );
         free( msgtext );
-    } else {
-        fprintf( stderr, "Unable to decrypt message\n" );
     }
 
     free( symkey );
     free( tweet );
     gcry_sexp_release( seckey );
+
+    return notfound;
 }
 
 void twit_usage() {
@@ -458,10 +454,10 @@ void twit_usage() {
     printf( "       Generates a new keypair for the user and prints the n-value from the public key\n" );
     printf( "   add <username> <n-value>\n" );
     printf( "       Registers another user's public key with the given n-value into the local store.\n" );
-    printf( "   enc <message> [<username> [<username> [...]]]\n" );
-    printf( "       Encrypt the message using the pubkeys belonging to the specified users\n" );
+    printf( "   enc [<username> [<username> [...]]]\n" );
+    printf( "       Encrypt the message in " TWIT_PLAINTEXT " using the pubkeys belonging to the specified users\n" );
     printf( "   dec <username> <password>\n" );
-    printf( "       Decrypt the message using the seckey belonging to user\n" );
+    printf( "       Decrypt the message in " TWIT_CIPHERTEXT " using the seckey belonging to user\n" );
 }
 
 int main( int argc, char** argv ) {
@@ -469,10 +465,10 @@ int main( int argc, char** argv ) {
         twit_gen_keys( argv[2], argv[3] );
     } else if (argc == 4 && strcasecmp( argv[1], "add" ) == 0) {
         twit_add_pubkey( argv[2], argv[3] );
-    } else if (argc >= 3 && strcasecmp( argv[1], "enc" ) == 0) {
-        twit_pub_encrypt( argv[2], argv + 3, argc - 3 );
+    } else if (argc >= 2 && strcasecmp( argv[1], "enc" ) == 0) {
+        twit_pub_encrypt( argv + 2, argc - 2 );
     } else if (argc == 4 && strcasecmp( argv[1], "dec" ) == 0) {
-        twit_pub_decrypt( argv[2], argv[3] );
+        return twit_pub_decrypt( argv[2], argv[3] );
     } else {
         twit_usage();
     }
