@@ -39,6 +39,18 @@ ___twitsecret = {
                     prefs.setCharPref( desiredParams[key], keyVal );
                 }
                 prefs.setBoolPref( "configured", ___twitsecret.configured );
+                if (___twitsecret.configured) {
+                    var userId = prefs.getCharPref( 'user_id' );
+                    var pubkey = ___twitsecret.api.getKey( userId, true );
+                    if (pubkey != null) {
+                        ___twitsecret.backend.add( userId, pubkey );
+                        ___twitsecret.logError( 'User already has a TwitSecret public key. Please install the private key to ~/.twitsecret/' );
+                    } else {
+                        // first time user, publish key
+                        var pubkey = ___twitsecret.backend.init( userId );
+                        ___twitsecret.api.publishKey( pubkey );
+                    }
+                }
             }
             return;
         }
@@ -272,13 +284,13 @@ ___twitsecret = {
             params = ___twitsecret.api.addSignature( method, url, params, null, null );
             var response = ___twitsecret.api.makeRequest( method, url, params, null );
             if (response != null) {
-                response = eval( response );
+                response = JSON.parse( response );
                 return response.ids;
             }
             return null;
         },
 
-        getKey: function( userId ) {
+        getKey: function( userId, checkOnly ) {
             var method = "GET";
             var url = "https://api.twitter.com/1/users/show.json?user_id=" + userId;
             var params = ___twitsecret.api.makeBaseParams( true );
@@ -286,12 +298,14 @@ ___twitsecret = {
             params = ___twitsecret.api.addSignature( method, url, params, null, null );
             var response = ___twitsecret.api.makeRequest( method, url, params, null );
             if (response != null) {
-                response = eval( response );
+                response = JSON.parse( response );
                 response = response.description;
-                if (response.indexOf( "TwitSecret:" ) == 0) {
+                if (response != null && response.indexOf( "TwitSecret:" ) == 0) {
                     return response.substring( 11 );
                 }
-                ___twitsecret.logError( "Specified user is not using TwitSecret" );
+                if (! checkOnly) {
+                    ___twitsecret.logError( "Specified user is not using TwitSecret" );
+                }
             }
             return null;
         },
@@ -369,6 +383,31 @@ ___twitsecret = {
             cstream.close();
         },
 
+        hexToBin: function( hex ) {
+            var binary = "";
+            for (var i = 0; i < hex.length; i += 2) {
+                var val = parseInt( hex.substr( i, 2 ), 16 );
+                if (val == 0x22 || val == 0x3C || val == 0x3E) {    // twitter doesn't allow these in bio
+                    val += 0x100;
+                }
+                binary += String.fromCharCode( val );
+            }
+            return binary;
+        },
+
+        binToHex: function( binary ) {
+            var hex = "";
+            for (var i = 0; i < binary.length; i++) {
+                var val = binary.charCodeAt( i );
+                if (val > 0x100) {
+                    val -= 0x100;
+                }
+                var pair = new Number( val ).toString( 16 );
+                hex += (pair.length < 2 ? "0" + pair : pair);
+            }
+            return hex;
+        },
+
         init: function( userId ) {
             var process = ___twitsecret.backend.getProcess();
             var args = new Array();
@@ -381,9 +420,9 @@ ___twitsecret = {
             }
 
             var pubkey = ___twitsecret.backend.readFile( userId + ".pub" );
-            var ix = pubkey.indexOf( "(n " ) + 3;
-            var endIx = pubkey.indexOf( ")", ix );
-            return pubkey.substring( ix, endIx );
+            var ix = pubkey.indexOf( "(n #" ) + 4;
+            var endIx = pubkey.indexOf( "#", ix );
+            return ___twitsecret.backend.hexToBin( pubkey.substring( ix, endIx ) );
         },
 
         add: function( userId, pubkey ) {
@@ -391,7 +430,7 @@ ___twitsecret = {
             var args = new Array();
             args.push( "add" );
             args.push( userId );
-            args.push( pubkey );
+            args.push( ___twitsecret.backend.binToHex( pubkey ) );
             process.run( true, args, args.length );
             return (process.exitValue == 0);
         },
