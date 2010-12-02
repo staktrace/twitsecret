@@ -4,6 +4,7 @@ ___twitsecret = {
     requestTokens: null,
     secretFriends: null,
     dataCache: {},
+    htmlTemplate: '<div class="stream-item" data-item-type="tweet" data-item-id="__TWEETID__" media="true"><div class="more">»</div> <div class="stream-item-content tweet stream-tweet " data-tweet-id="__TWEETID__" data-item-id="__TWEETID__" data-screen-name="__SCREENNAME__" data-user-id="__USERID__"> <div class="tweet-dogear "></div> <div class="tweet-image"> <img src="__ICONURL__" alt="__USERNAME__" class="user-profile-link" data-user-id="__USERID__" height="48" width="48"> </div> <div class="tweet-content"> <div class="tweet-row"> <span class="tweet-user-name"> <a class="tweet-screen-name user-profile-link" data-user-id="__USERID__" href="/#%21/__SCREENNAME__" title="__USERNAME__">__SCREENNAME__</a> <span class="tweet-full-name">__USERNAME__</span> </span> <div class="tweet-corner"> <div class="tweet-meta"> <span class="icons"> <div class="extra-icons"> <span class="inlinemedia-icons"></span> </div> </span> </div> </div> </div> <div class="tweet-row"> <div class="tweet-text">__TEXT__</div> </div> <div class="tweet-row"> </div> <div class="tweet-row"> <a href="/#%21/__SCREENNAME__/status/__TWEETID__" class="tweet-timestamp" title="__TIMEDATE__"><span class="_timestamp" data-time="__TIMEMILLIS__" data-long-form="true">__TIMEAPPROX__</span></a> <span class="tweet-actions" data-tweet-id="__TWEETID__"> <a href="#" class="favorite-action"><span><i></i><b>Favorite</b></span></a> <a href="#" class="reply-action" data-screen-name="__SCREENNAME__"><span><i></i><b>Reply</b></span></a> <a href="#" class="delete-action"><span><i></i><b>Delete</b></span></a> </span> </div> <div class="tweet-row"> </div> </div> </div></div>',
 
     prefs: function() {
         var prefs = Components.classes["@mozilla.org/preferences-service;1"].getService( Components.interfaces.nsIPrefService );
@@ -126,17 +127,25 @@ ___twitsecret = {
             if (win.location.hostname.indexOf( "twitter" ) < 0) {
                 return;
             }
-            ___twitsecret.mutator.recheck( win, 0 );
+            try {
+                ___twitsecret.mutator.addButton( win, 1 );
+            } catch (e) {
+                ___twitsecret.logError( e );
+            }
+            try {
+                ___twitsecret.mutator.decryptStream( win, 1 );
+            } catch (e) {
+                ___twitsecret.logError( e );
+            }
         },
 
-        recheck: function( win, checkCount ) {
+        addButton: function( win, checkCount ) {
             var buttons = win.document.getElementsByClassName( "tweet-button" );
-            ___twitsecret.logError( "Found " + buttons.length + " button elements" );
             if (buttons.length == 0) {
-                if (checkCount > 5) {
-                    ___twitsecret.logError( "Giving up" );
+                if (checkCount >= 5) {
+                    ___twitsecret.logError( "Giving up on adding button" );
                 } else {
-                    setTimeout( ___twitsecret.mutator.recheck, 5000, win, checkCount + 1 );
+                    setTimeout( ___twitsecret.mutator.addButton, 5000, win, checkCount + 1 );
                 }
             } else if (buttons.length == 1) {
                 var button = buttons.item( 0 );
@@ -148,6 +157,20 @@ ___twitsecret = {
                 }, false );
                 button.parentNode.insertBefore( clone, button.nextSibling );
                 clone.addEventListener( "click", ___twitsecret.mutator.encryptTweet, false );
+            }
+        },
+
+        decryptStream: function( win, checkCount ) {
+            var streams = win.document.getElementsByClassName( "stream-items" );
+            if (streams.length == 0) {
+                if (checkCount >= 5) {
+                    ___twitsecret.logError( "Giving up on decrypting stream" );
+                } else {
+                    setTimeout( ___twitsecret.mutator.decryptStream, 5000, win, checkCount + 1 );
+                }
+            } else if (streams.length == 1) {
+                var stream = streams.item( 0 );
+                stream.innerHTML = ___twitsecret.mutator.getTimelineHTML();
             }
         },
 
@@ -226,6 +249,46 @@ ___twitsecret = {
                 timeline.push( tweet );
             }
             return timeline;
+        },
+
+        approxTime: function( millis ) {
+            var delta = (new Date().getTime() - millis) / 1000;
+            if (delta < 60) {
+                return Math.floor( delta ) + " seconds ago";
+            } else if (delta < 60 * 60) {
+                return Math.floor( delta / 60 ) + " minutes ago";
+            } else if (delta < 60 * 60 * 24) {
+                return Math.floor( delta / (60 * 60) ) + " hours ago";
+            } else if (delta < 60 * 60 * 60 * 24 * 365) {
+                return Math.floor( delta / (60 * 60 * 24) ) + " days ago";
+            } else {
+                return Math.floor( delta / (60 * 60 * 24 * 365) ) + " years ago";
+            }
+        },
+
+        getTimelineHTML: function() {
+            var timeline = ___twitsecret.mutator.getTimeline();
+            if (timeline == null) {
+                return null;
+            }
+            var html = "";
+            for (var i = 0; i < timeline.length; i++) {
+                var item = timeline[i];
+                var itemHtml = ___twitsecret.htmlTemplate;
+                var time = Date.parse( item.created_at );
+                var timeApprox = ___twitsecret.mutator.approxTime( time );
+                itemHtml = itemHtml.replace( /__TWEETID__/g, item.id_str );
+                itemHtml = itemHtml.replace( /__SCREENNAME__/g, item.user.screen_name );
+                itemHtml = itemHtml.replace( /__USERID__/g, item.user.id_str );
+                itemHtml = itemHtml.replace( /__ICONURL__/g, item.user.profile_image_url );
+                itemHtml = itemHtml.replace( /__USERNAME__/g, item.user.name );
+                itemHtml = itemHtml.replace( /__TEXT__/g, item.text );
+                itemHtml = itemHtml.replace( /__TIMEDATE__/g, item.created_at );
+                itemHtml = itemHtml.replace( /__TIMEMILLIS__/g, time );
+                itemHtml = itemHtml.replace( /__TIMEAPPROX__/g, timeApprox );
+                html += itemHtml;
+            }
+            return html;
         },
     },
 
@@ -425,7 +488,7 @@ ___twitsecret = {
 
         getTweets: function() {
             var method = "GET";
-            var url = "https://api.twitter.com/1/statuses/friends_timeline.json?trim_user=1&count=200&include_rts=1";
+            var url = "https://api.twitter.com/1/statuses/friends_timeline.json?count=200&include_rts=1";
             var params = ___twitsecret.api.makeBaseParams( true );
             params = params.map( ___twitsecret.api.escapeParamKeyValue );
             params = ___twitsecret.api.addSignature( method, url, params, null, null );
