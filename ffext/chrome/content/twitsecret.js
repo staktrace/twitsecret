@@ -187,6 +187,46 @@ ___twitsecret = {
             e.initMouseEvent( "click", true, true, win, 0, 0, 0, 0, 0, false, false, false, false, 0, null );
             button.dispatchEvent( e );
         },
+
+        getTimeline: function() {
+            var tweets = ___twitsecret.api.getTweets();
+            if (tweets == null) {
+                ___twitsecret.logError( "Unable to fetch tweets" );
+                return null;
+            }
+            var timeline = new Array();
+            for (var i = 0; i < tweets.length && timeline.length < 20; i++) {
+                var tweet = tweets[i];
+                if (tweet.source == "web" && tweet.text.length >= 4 && tweet.text.substring( 0, 2 ) == "TS") { // TODO: this might pick up false positives
+                    var numMsgs = parseInt( tweet.text.substring( 2, 4 ) );
+                    if (! isNaN( numMsgs )) {
+                        var ciphertext = tweet.text.substring( 4 );
+                        numMsgs--;
+                        for (var j = i + 1; j < tweets.length && numMsgs > 0; j++) {
+                            if (tweets[j].user.id_str == tweet.user.id_str && tweets[j].source.indexOf( "twitsecret" ) >= 0) {
+                                ciphertext += tweets[j].text;
+                                tweets.splice( j, 1 );
+                                j--;
+                                numMsgs--;
+                            }
+                        }
+                        if (numMsgs == 0) {
+                            var plaintext = ___twitsecret.backend.decrypt( ciphertext, ___twitsecret.prefs().getCharPref( 'user_id' ) );
+                            if (plaintext != null) {
+                                tweet.text = plaintext;
+                                // fall through to timeline.push
+                            } else {
+                                continue;
+                            }
+                        } else {
+                            continue;
+                        }
+                    }
+                }
+                timeline.push( tweet );
+            }
+            return timeline;
+        },
     },
 
     api: {
@@ -385,11 +425,15 @@ ___twitsecret = {
 
         getTweets: function() {
             var method = "GET";
-            var url = "https://api.twitter.com/1/statuses/friends_timeline.json?trim_user=1";
+            var url = "https://api.twitter.com/1/statuses/friends_timeline.json?trim_user=1&count=200&include_rts=1";
             var params = ___twitsecret.api.makeBaseParams( true );
             params = params.map( ___twitsecret.api.escapeParamKeyValue );
             params = ___twitsecret.api.addSignature( method, url, params, null, null );
-            return ___twitsecret.api.makeRequest( method, url, params, null );
+            var response = ___twitsecret.api.makeRequest( method, url, params, null );
+            if (response != null) {
+                response = JSON.parse( response );
+            }
+            return response;
         },
     },
 
