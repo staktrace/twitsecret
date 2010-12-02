@@ -46,7 +46,7 @@ ___twitsecret = {
                     var pubkey = ___twitsecret.api.getKey( userId, true );
                     if (pubkey != null) {
                         ___twitsecret.backend.add( userId, pubkey );
-                        ___twitsecret.logError( 'User already has a TwitSecret public key. Please install the private key to ~/.twitsecret/' );
+                        alert( 'You already has a TwitSecret public key. Please install the private key to ~/.twitsecret/, or clear your Twitter "bio" field.' );
                     } else {
                         // first time user, publish key
                         var pubkey = ___twitsecret.backend.init( userId );
