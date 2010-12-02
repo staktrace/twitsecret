@@ -2,6 +2,8 @@ ___twitsecret = {
     configured: false,
     enabled: false,
     requestTokens: null,
+    secretFriends: null,
+    dataCache: {},
 
     prefs: function() {
         var prefs = Components.classes["@mozilla.org/preferences-service;1"].getService( Components.interfaces.nsIPrefService );
@@ -83,7 +85,7 @@ ___twitsecret = {
             ___twitsecret.logError( 'Unable to obtain appcontent' );
             return;
         }
-        appcontent.addEventListener( "DOMContentLoaded", ___twitsecret.mutator.pageloaded, true );
+        appcontent.addEventListener( "DOMContentLoaded", ___twitsecret.mutator.pageLoaded, true );
         ___twitsecret.enabled = true;
         ___twitsecret.updateStatus();
     },
@@ -94,7 +96,7 @@ ___twitsecret = {
             ___twitsecret.logError( 'Unable to obtain appcontent' );
             return;
         }
-        appcontent.removeEventListener( "DOMContentLoaded", ___twitsecret.mutator.pageloaded, true );
+        appcontent.removeEventListener( "DOMContentLoaded", ___twitsecret.mutator.pageLoaded, true );
         ___twitsecret.enabled = false;
         ___twitsecret.updateStatus();
     },
@@ -119,12 +121,71 @@ ___twitsecret = {
     },
 
     mutator: {
-        pageloaded: function( e ) {
+        pageLoaded: function( e ) {
             var win = e.originalTarget.defaultView;
-            if (win.top != win) {
+            if (win.location.hostname.indexOf( "twitter" ) < 0) {
                 return;
             }
-            // TODO: mutate pages here
+            ___twitsecret.mutator.recheck( win, 0 );
+        },
+
+        recheck: function( win, checkCount ) {
+            var buttons = win.document.getElementsByClassName( "tweet-button" );
+            ___twitsecret.logError( "Found " + buttons.length + " button elements" );
+            if (buttons.length == 0) {
+                if (checkCount > 5) {
+                    ___twitsecret.logError( "Giving up" );
+                } else {
+                    setTimeout( ___twitsecret.mutator.recheck, 5000, win, checkCount + 1 );
+                }
+            } else if (buttons.length == 1) {
+                var button = buttons.item( 0 );
+                var clone = win.document.createElement( 'a' );
+                clone.className = button.className;
+                clone.textContent = 'TweetSecretly';
+                button.addEventListener( 'DOMAttrModified', function( e ) {
+                    clone.className = button.className;
+                }, false );
+                button.parentNode.insertBefore( clone, button.nextSibling );
+                clone.addEventListener( "click", ___twitsecret.mutator.encryptTweet, false );
+            }
+        },
+
+        encryptTweet: function( e ) {
+            var out = { accepted: false, friends: new Array() };
+            var picker = window.openDialog( "chrome://twitsecret/content/picker.xul", "", "chrome, dialog, modal, resizable=yes", ___twitsecret, out );
+            if (! out.accepted) {
+                return;
+            }
+
+            var win = e.view;
+            var texts = win.document.getElementsByClassName( "twitter-anywhere-tweet-box-editor" );
+            if (texts.length != 1) {
+                ___twitsecret.logError( "Found " + texts.length + " textarea elements" );
+                alert( 'Unexpected TwitSecret error!' );
+                return;
+            }
+            var textarea = texts.item( 0 );
+            var msg = textarea.value;
+            var encrypted = ___twitsecret.backend.encrypt( msg, out.friends.concat( ___twitsecret.prefs().getCharPref( 'user_id' ) ) );
+            var numpackets = Math.ceil( (encrypted.length + 4) / 140 );
+            if (numpackets < 10) {
+                encrypted = "TS0" + numpackets + encrypted;
+            } else if (numpackets < 99) {
+                encrypted = "TS" + numpackets + encrypted;
+            } else {
+                alert( 'Sorry, the message is too long and/or you have too many recipients.' );
+                return;
+            }
+
+            for (var i = numpackets - 1; i > 0; i--) {
+                ___twitsecret.api.postTweet( encrypted.substr( 140 * i, 140 ) );
+            }
+            textarea.value = encrypted.substr( 0, 140 );
+            var button = win.document.getElementsByClassName( "tweet-button" ).item( 0 );
+            var e = win.document.createEvent( "MouseEvents" );
+            e.initMouseEvent( "click", true, true, win, 0, 0, 0, 0, 0, false, false, false, false, 0, null );
+            button.dispatchEvent( e );
         },
     },
 
@@ -284,8 +345,7 @@ ___twitsecret = {
             params = ___twitsecret.api.addSignature( method, url, params, null, null );
             var response = ___twitsecret.api.makeRequest( method, url, params, null );
             if (response != null) {
-                response = JSON.parse( response );
-                return response.ids;
+                return JSON.parse( response );
             }
             return null;
         },
@@ -299,6 +359,7 @@ ___twitsecret = {
             var response = ___twitsecret.api.makeRequest( method, url, params, null );
             if (response != null) {
                 response = JSON.parse( response );
+                ___twitsecret.dataCache[ userId ] = response;
                 response = response.description;
                 if (response != null && response.indexOf( "TwitSecret:" ) == 0) {
                     return response.substring( 11 );

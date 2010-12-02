@@ -1,2 +1,2 @@
-content twitsecret chrome/content/
+content twitsecret chrome/content/ contentaccessible=yes
 overlay chrome://browser/content/browser.xul chrome://twitsecret/content/twitsecret.xul

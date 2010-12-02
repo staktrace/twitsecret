@@ -1,0 +1,90 @@
+<?xml version="1.0"?>
+<dialog id="twitsecret_picker" title="Select Friends"
+    xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+    buttons="accept,cancel"
+    buttonlabelcancel="Cancel"
+    buttonlabelaccept="Accept"
+    ondialogaccept="return acceptFriends();"
+    ondialogcancel="return cancelFriends();">
+
+    <groupbox id="twitsecret_picker_list">
+        <caption label="Friends"/>
+        <description id="twitsecret_picker_loading" value="Loading list... please wait"/>
+    </groupbox>
+    <script type="text/javascript"><![CDATA[
+        function updateList( friends ) {
+            if (friends == null) {
+                document.getElementById( 'twitsecret_picker_loading' ).value = 'Error loading friends list';
+                return;
+            } else if (friends.length == 0) {
+                document.getElementById( 'twitsecret_picker_loading' ).value = 'You have no friends with TwitSecret enabled';
+                return;
+            }
+            var list = document.getElementById( 'twitsecret_picker_list' );
+            list.removeChild( document.getElementById( 'twitsecret_picker_loading' ) );
+            for (var i = 0; i < friends.length; i++) {
+                var checkbox = document.createElement( 'checkbox' );
+                checkbox.setAttribute( 'id', friends[i][0] );
+                var label = friends[i][1];
+                if (friends[i][2] != null && friends[i][2].length > 0) {
+                    label += " (" + friends[i][2] + ")";
+                }
+                checkbox.setAttribute( 'label', label );
+                list.appendChild( checkbox );
+            }
+            document.documentElement.getButton( "accept" ).disabled = false;
+        }
+
+        function acceptFriends() {
+            var out = window.arguments[1];
+            out.accepted = true;
+
+            var list = document.getElementById( 'twitsecret_picker_list' );
+            for (var child = list.firstChild; child != null; child = child.nextSibling) {
+                if (child.nodeName != 'checkbox') {
+                    continue;
+                }
+                if (child.checked) {
+                    out.friends.push( child.getAttribute( 'id' ) );
+                }
+            }
+        }
+
+        function cancelFriends() {
+            var out = window.arguments[1];
+            out.accepted = false;
+        }
+
+        function getFriendsList() {
+            document.documentElement.getButton( "accept" ).disabled = true;
+
+            var ___twitsecret = window.arguments[0];
+            if (___twitsecret.secretFriends == null) {
+                ___twitsecret.secretFriends = new Array();
+                var fullList = ___twitsecret.api.getFriends();
+                if (fullList == null) {
+                    updateList( null );
+                    return;
+                }
+                var myUserId = ___twitsecret.prefs().getCharPref( 'user_id' );
+                for (var i = 0; i < fullList.length; i++) {
+                    var userId = fullList[i];
+                    if (userId == myUserId) {
+                        continue;
+                    }
+                    var key = ___twitsecret.api.getKey( userId, true );
+                    if (key == null) {
+                        continue;
+                    }
+                    ___twitsecret.backend.add( userId, key );
+                    ___twitsecret.secretFriends.push( [ userId, ___twitsecret.dataCache[ userId ].name, ___twitsecret.dataCache[ userId ].screen_name ] );
+                }
+            }
+            updateList( ___twitsecret.secretFriends );
+        }
+
+        window.onload = function() {
+            setTimeout( getFriendsList, 500 );
+        };
+    ]]></script>
+</dialog>
