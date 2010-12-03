@@ -224,7 +224,7 @@ void twit_gen_keys( char* username, char* password ) {
 
 void twit_add_pubkey( char* username, char* nvalue ) {
     char* pubkeytext = malloc( KEY_BUFLEN );
-    sprintf( pubkeytext, "(public-key (rsa (n #%s#) (e 5:65537)))", nvalue );
+    sprintf( pubkeytext, "(public-key (rsa (n #%s#) (e #010001#)))", nvalue );
 
     {   // write to file
         char* filename = twit_mkfilename( username, ".pub" );
