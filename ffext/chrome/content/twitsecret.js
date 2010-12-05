@@ -3,6 +3,8 @@ ___twitsecret = {
     enabled: false,
     requestTokens: null,
     secretFriends: null,
+    password: "password",   // TODO replace this with a password obtained from user on configure and enable
+    pollInterval: 3000,
     dataCache: {},
     htmlTemplate: '<div class="stream-item" data-item-type="tweet" data-item-id="__TWEETID__" media="true"><div class="more">»</div> <div class="stream-item-content tweet stream-tweet " data-tweet-id="__TWEETID__" data-item-id="__TWEETID__" data-screen-name="__SCREENNAME__" data-user-id="__USERID__"> <div class="tweet-dogear "></div> <div class="tweet-image"> <img src="__ICONURL__" alt="__USERNAME__" class="user-profile-link" data-user-id="__USERID__" height="48" width="48"> </div> <div class="tweet-content"> <div class="tweet-row"> <span class="tweet-user-name"> <a class="tweet-screen-name user-profile-link" data-user-id="__USERID__" href="/#%21/__SCREENNAME__" title="__USERNAME__">__SCREENNAME__</a> <span class="tweet-full-name">__USERNAME__</span> </span> <div class="tweet-corner"> <div class="tweet-meta"> <span class="icons"> <div class="extra-icons"> <span class="inlinemedia-icons"></span> </div> </span> </div> </div> </div> <div class="tweet-row"> <div class="tweet-text">__TEXT__</div> </div> <div class="tweet-row"> </div> <div class="tweet-row"> <a href="/#%21/__SCREENNAME__/status/__TWEETID__" class="tweet-timestamp" title="__TIMEDATE__"><span class="_timestamp" data-time="__TIMEMILLIS__" data-long-form="true">__TIMEAPPROX__</span></a> <span class="tweet-actions" data-tweet-id="__TWEETID__"> <a href="#" class="favorite-action"><span><i></i><b>Favorite</b></span></a> <a href="#" class="reply-action" data-screen-name="__SCREENNAME__"><span><i></i><b>Reply</b></span></a> <a href="#" class="delete-action"><span><i></i><b>Delete</b></span></a> </span> </div> <div class="tweet-row"> </div> </div> </div></div>',
 
@@ -145,7 +147,7 @@ ___twitsecret = {
                 if (checkCount >= 5) {
                     ___twitsecret.logError( "Giving up on adding button" );
                 } else {
-                    setTimeout( ___twitsecret.mutator.addButton, 5000, win, checkCount + 1 );
+                    setTimeout( ___twitsecret.mutator.addButton, ___twitsecret.pollInterval, win, checkCount + 1 );
                 }
             } else if (buttons.length == 1) {
                 var button = buttons.item( 0 );
@@ -166,7 +168,7 @@ ___twitsecret = {
                 if (checkCount >= 5) {
                     ___twitsecret.logError( "Giving up on decrypting stream" );
                 } else {
-                    setTimeout( ___twitsecret.mutator.decryptStream, 5000, win, checkCount + 1 );
+                    setTimeout( ___twitsecret.mutator.decryptStream, ___twitsecret.pollInterval, win, checkCount + 1 );
                 }
             } else if (streams.length == 1) {
                 var stream = streams.item( 0 );
@@ -581,7 +583,7 @@ ___twitsecret = {
             var args = new Array();
             args.push( "init" );
             args.push( userId );
-            args.push( "password" );
+            args.push( ___twitsecret.password );
             process.run( true, args, args.length );
             if (process.exitValue != 0) {
                 return null;
@@ -626,7 +628,7 @@ ___twitsecret = {
             var args = new Array();
             args.push( "dec" );
             args.push( userId );
-            args.push( "password" );
+            args.push( ___twitsecret.password );
             process.run( true, args, args.length );
             if (process.exitValue != 0) {
                 return null;

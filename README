@@ -1,0 +1,47 @@
+TwitSecret
+
+University of Waterloo CS 858 Final project, Fall 2010
+Kartikaya Gupta and Pengfei Zhang
+
+This project provides a Firefox plugin that allows users to encrypt their
+tweets such that they are only readable by the specified recipients. The plugin
+inserts a "TweetSecretly" button next to the regular "Tweet" button on the
+Twitter home page to allow the user to select the intended recipients. It
+also replaces the tweet stream with one where tweets are decrypted, and
+undecryptable tweets are filtered out.
+
+In terms of architecture, there is a C component (src/*.c) which uses
+libgcrypt to provide the required crypto primitives. The binary that is
+produced from that code is installed into ffext/backend and shipped as
+part of the plugin. It is invoked via Firefox's nsIProcess API and reads and
+writes to files in ~/.twitsecret/ since I didn't have the time to figure out
+Firefox's API for streams to nsIProcess.
+
+The script in libs/ downloads and builds the gnupg-ecc library, which is
+supposed to contain a version of libgcrypt with ECC encryption/decryption
+support. I could never get that working, so you can mostly ignore it. The
+script may still be useful if you don't have libgcrypt to build the binary
+and don't want to install it on your system globally.
+
+The Firefox XUL UI integration is minimal. The bulk of the hard work is done
+in ffext/chrome/content/twitsecret.js, which has almost all of the script code
+used to make the plugin work.
+
+Note that as it stands there are a number of things that need to be done
+before the plugin is usable by anybody other than me. The two main things
+are compiling the binary for your platform and installing it into the
+appropriate subfolder in ffext/backend. The second is obtaining API keys
+from Twitter so that the plugin can actually use the API. You will need
+to register a Twitter application at dev.twitter.com and put the consumer
+key and the secret key into ffext/chrome/content/secrets.js like this:
+
+___twitsecret.keys = {
+    consumerKey: 'MY_CONSUMER_KEY',
+    secretKey: 'MY_SECRET_KEY'
+}
+
+After that you can bundle the ffext folder into a xpi file, or just point
+a text file called "projects.staktrace.ffext@staktrace.com" to the ffext
+folder and install that to your Firefox extensions folder to get it working.
+
+Good luck!
